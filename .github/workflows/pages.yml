@@ -1,0 +1,59 @@
+name: Publish NAILFORM LAB to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - "scripts/pages_smoke.cjs"
+      - "tests/fixtures/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci --prefix frontend --no-audit --no-fund
+      - name: Build browser research edition
+        run: npm --prefix frontend run build:pages
+      - name: Install test browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Verify static measurement and CAD workflow
+        run: |
+          node scripts/test_browser_api.cjs
+          node scripts/test_browser_geometry.mjs "$RUNNER_TEMP/nailform-browser-cad"
+          node scripts/pages_smoke.cjs
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: frontend/dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy tested static artifact
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
