@@ -34,6 +34,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { api, date, states } from "./types";
+import { t, useLanguage, LanguageSwitcher, formatNumber } from "./i18n";
 import type {
   Session,
   ImageRecord,
@@ -48,7 +49,7 @@ function Viewer(props: { model?: Generation; comparison?: Generation }) {
     <Suspense
       fallback={
         <div className="viewer viewer-loading" role="status">
-          Preparing the 3D workspace…
+          {t("Preparing the 3D workspace…")}
         </div>
       }
     >
@@ -94,6 +95,22 @@ const emptyFeedback: Feedback = {
   contour_accepted: false,
   geometry_accepted: false,
 };
+function captureViewLabel(view: CaptureView) {
+  return t(
+    { top: "Top", front: "Free edge", side: "Side", oblique: "Oblique" }[view],
+  );
+}
+function translatedError(text: string) {
+  const prefixes = [
+    "This browser could not open the local research workspace.",
+    "The local research service is unavailable.",
+  ];
+  for (const prefix of prefixes) {
+    if (text.startsWith(prefix))
+      return `${t(prefix)} ${t(text.slice(prefix.length).trim())}`;
+  }
+  return t(text);
+}
 function message(error: unknown) {
   return error instanceof Error
     ? error.message
@@ -118,9 +135,9 @@ function ErrorNotice({
   return (
     <div className="error-notice" role="alert">
       <AlertCircle size={18} />
-      <span>{text}</span>
+      <span>{translatedError(text)}</span>
       {onClose && (
-        <button aria-label="Dismiss error" onClick={onClose}>
+        <button aria-label={t("Dismiss error")} onClick={onClose}>
           <X size={16} />
         </button>
       )}
@@ -132,8 +149,9 @@ function ResearchNotice() {
     <div className="research-notice">
       <Microscope size={16} />
       <span>
-        Research prototype. Generated objects are for laboratory references
-        only, not for wear or contact testing.
+        {t(
+          "Research prototype. Generated objects are for laboratory references only, not for wear or contact testing.",
+        )}
       </span>
     </div>
   );
@@ -145,7 +163,7 @@ function ShellIllustration() {
       viewBox="0 0 560 610"
       className="shell-illustration"
       role="img"
-      aria-label="Illustrative parametric nail shell, not a measured nail"
+      aria-label={t("Illustrative parametric nail shell, not a measured nail")}
     >
       <defs>
         <linearGradient id="shell" x1="0" x2="1">
@@ -224,10 +242,10 @@ function ShellIllustration() {
         fill="#746565"
       >
         <text x="38" y="166">
-          SURFACE STUDY
+          {t("SURFACE STUDY")}
         </text>
         <text x="431" y="477">
-          FORM / 01
+          {t("FORM / 01")}
         </text>
       </g>
     </svg>
@@ -235,6 +253,7 @@ function ShellIllustration() {
 }
 
 export default function App() {
+  useLanguage();
   const [page, setPage] = useState<"home" | "lab" | "research">("home"),
     [step, setStep] = useState(0),
     [sessions, setSessions] = useState<Session[]>([]),
@@ -294,7 +313,9 @@ export default function App() {
   async function deleteSession(id: string) {
     if (
       !window.confirm(
-        "Delete this session, its private photographs, measurements, and model files? This cannot be undone.",
+        t(
+          "Delete this session, its private photographs, measurements, and model files? This cannot be undone.",
+        ),
       )
     )
       return;
@@ -318,25 +339,28 @@ export default function App() {
   return (
     <>
       <a className="skip-link" href="#main">
-        Skip to content
+        {t("Skip to content")}
       </a>
       <header className="site-header">
         <button
           className="brand"
           onClick={() => navigate("home")}
-          aria-label="NAILFORM LAB home"
+          aria-label={t("NAILFORM LAB home")}
         >
           <span className="brand-symbol">n</span>
           <span>
             NAILFORM<span className="brand-lab">LAB</span>
           </span>
         </button>
-        <nav className={menuOpen ? "open" : ""} aria-label="Main navigation">
+        <nav
+          className={menuOpen ? "open" : ""}
+          aria-label={t("Main navigation")}
+        >
           <button
             className={page === "home" ? "selected" : ""}
             onClick={() => navigate("home")}
           >
-            The approach
+            {t("The approach")}
           </button>
           <button
             className={page === "lab" ? "selected" : ""}
@@ -344,21 +368,23 @@ export default function App() {
               session ? (setPage("lab"), setMenuOpen(false)) : setNewOpen(true)
             }
           >
-            Measurement lab
+            {t("Measurement lab")}
           </button>
           <button
             className={page === "research" ? "selected" : ""}
             onClick={() => navigate("research")}
           >
-            Research journal
+            {t("Research journal")}
           </button>
         </nav>
         <button className="header-cta" onClick={() => setNewOpen(true)}>
-          Start a session <ArrowUpRight size={16} />
+          {t("Start a session")}
+          <ArrowUpRight size={16} />
         </button>
+        <LanguageSwitcher />
         <button
           className="mobile-menu icon-button"
-          aria-label="Toggle navigation"
+          aria-label={t("Toggle navigation")}
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen(!menuOpen)}
         >
@@ -376,71 +402,76 @@ export default function App() {
             <section className="hero">
               <div className="hero-copy">
                 <div className="eyebrow">
-                  <span /> BEAUTY, MEASURED DIFFERENTLY
+                  <span /> {t("BEAUTY, MEASURED DIFFERENTLY")}
                 </div>
                 <h1>
-                  Designed for
+                  {t("Designed for")}
                   <br />
-                  your nails.
+                  {t("your nails.")}
                   <br />
-                  <em>Your shape.</em>
+                  <em>{t("Your shape.")}</em>
                 </h1>
                 <p className="hero-description">
-                  A study in individual form. Discover a more considered
-                  approach to artificial nails, beginning with the geometry that
-                  makes yours unique.
+                  {t(
+                    "A study in individual form. Discover a more considered approach to artificial nails, beginning with the geometry that makes yours unique.",
+                  )}
                 </p>
                 <button
                   className="button primary large"
                   onClick={() => setNewOpen(true)}
                 >
-                  Start measurement <ArrowUpRight size={20} />
+                  {t("Start measurement")}
+                  <ArrowUpRight size={20} />
                 </button>
                 <div className="hero-note">
-                  <span className="status-dot" /> RESEARCH EDITION · V1{" "}
-                  <span className="hero-note-line" /> Thoughtfully experimental.
+                  <span className="status-dot" /> {t("RESEARCH EDITION · V1")}{" "}
+                  <span className="hero-note-line" />{" "}
+                  {t("Thoughtfully experimental.")}
                 </div>
               </div>
               <div className="hero-art">
                 <div className="art-topline">
-                  <span>THE ANATOMY OF INDIVIDUALITY</span>
-                  <span>001 — FORM STUDIES</span>
+                  <span>{t("THE ANATOMY OF INDIVIDUALITY")}</span>
+                  <span>{t("001 — FORM STUDIES")}</span>
                 </div>
                 <ShellIllustration />
                 <div className="art-bottomline">
-                  <span>PARAMETRIC SHELL EXPLORATION</span>
-                  <span>ILLUSTRATION / NOT A MEASUREMENT</span>
+                  <span>{t("PARAMETRIC SHELL EXPLORATION")}</span>
+                  <span>{t("ILLUSTRATION / NOT A MEASUREMENT")}</span>
                 </div>
                 <div className="art-floating-note">
                   <span>
-                    Every curve,
-                    <br />a new question.
+                    {t("Every curve,")}
+                    <br />
+                    {t("a new question.")}
                   </span>
                   <ArrowUpRight size={20} />
                 </div>
               </div>
             </section>
             <div className="approach-strip">
-              <span>INDIVIDUAL BY NATURE.</span>
+              <span>{t("INDIVIDUAL BY NATURE.")}</span>
               <p>
-                Measured with care. Modeled with intention. Reviewed by people.
+                {t(
+                  "Measured with care. Modeled with intention. Reviewed by people.",
+                )}
               </p>
-              <span>NAILFORM / RESEARCH LAB</span>
+              <span>{t("NAILFORM / RESEARCH LAB")}</span>
             </div>
             <section className="approach-section">
               <div className="section-intro">
                 <div>
-                  <div className="eyebrow">FROM OBSERVATION TO FORM</div>
+                  <div className="eyebrow">{t("FROM OBSERVATION TO FORM")}</div>
                   <h2>
-                    A little guidance.
+                    {t("A little guidance.")}
                     <br />
-                    <em>A closer understanding.</em>
+                    <em>{t("A closer understanding.")}</em>
                   </h2>
                 </div>
                 <p>
-                  No assumptions about a perfect fit. We bring photographs,
-                  calibrated measurements, and human judgment together, one nail
-                  at a time.
+                  {t(
+                    "No assumptions about a perfect fit. We bring photographs, calibrated measurements, and human judgment together, one nail at a time.",
+                  )}
                 </p>
               </div>
               <div className="approach-grid">
@@ -469,8 +500,8 @@ export default function App() {
                       <span>{item.n}</span>
                       {item.icon}
                     </div>
-                    <h3>{item.title}</h3>
-                    <p>{item.text}</p>
+                    <h3>{t(item.title)}</h3>
+                    <p>{t(item.text)}</p>
                   </article>
                 ))}
               </div>
@@ -480,17 +511,18 @@ export default function App() {
                 <Microscope size={30} strokeWidth={1} />
               </div>
               <div>
-                <div className="eyebrow">SCIENCE WITH ITS LIMITS IN VIEW</div>
+                <div className="eyebrow">
+                  {t("SCIENCE WITH ITS LIMITS IN VIEW")}
+                </div>
                 <h2>
-                  Beautiful possibilities.
+                  {t("Beautiful possibilities.")}
                   <br />
-                  <em>Honest beginnings.</em>
+                  <em>{t("Honest beginnings.")}</em>
                 </h2>
                 <p>
-                  This is a research instrument, not a promise of verified fit.
-                  Photographs provide calibrated 2D projections; curvature is
-                  manually specified in this edition. Every result keeps its
-                  provenance.
+                  {t(
+                    "This is a research instrument, not a promise of verified fit. Photographs provide calibrated 2D projections; curvature is manually specified in this edition. Every result keeps its provenance.",
+                  )}
                 </p>
                 <ResearchNotice />
               </div>
@@ -498,7 +530,8 @@ export default function App() {
                 className="text-button"
                 onClick={() => navigate("research")}
               >
-                Open the research journal <ArrowUpRight size={18} />
+                {t("Open the research journal")}
+                <ArrowUpRight size={18} />
               </button>
             </section>
           </>
@@ -512,13 +545,15 @@ export default function App() {
                   onClick={() => navigate("research")}
                 >
                   <ChevronLeft size={15} />
-                  All sessions
+                  {t("All sessions")}
                 </button>
                 <h1>{session.name}</h1>
                 <div className="session-meta">
-                  <Badge>{states[session.state] ?? session.state}</Badge>
+                  <Badge>{t(states[session.state] ?? session.state)}</Badge>
                   <span>
-                    {browserRuntime ? "SAVED ON THIS DEVICE" : "PRIVATE WORKSPACE"}
+                    {browserRuntime
+                      ? t("SAVED ON THIS DEVICE")
+                      : t("PRIVATE WORKSPACE")}
                   </span>
                   <span>{date(session.updated_at)}</span>
                 </div>
@@ -528,10 +563,10 @@ export default function App() {
                 onClick={() => setNewOpen(true)}
               >
                 <Plus size={16} />
-                New session
+                {t("New session")}
               </button>
             </div>
-            <div className="workflow-nav" aria-label="Measurement steps">
+            <div className="workflow-nav" aria-label={t("Measurement steps")}>
               {[
                 "Capture",
                 "Calibrate & trace",
@@ -553,7 +588,7 @@ export default function App() {
                       String(index + 1).padStart(2, "0")
                     )}
                   </span>
-                  <span>{title}</span>
+                  <span>{t(title)}</span>
                   <ChevronRight size={14} />
                 </button>
               ))}
@@ -612,11 +647,11 @@ export default function App() {
         <div className="footer-brand">
           NAILFORM <span>LAB</span>
         </div>
-        <span>A RESEARCH PRACTICE IN INDIVIDUAL FORM.</span>
+        <span>{t("A RESEARCH PRACTICE IN INDIVIDUAL FORM.")}</span>
         <span>
           {browserRuntime
-            ? "Stored in this browser. No cloud sync."
-            : "Private by default. Made for exploration."}
+            ? t("Stored in this browser. No cloud sync.")
+            : t("Private by default. Made for exploration.")}
         </span>
       </footer>
       {newOpen && (
@@ -645,7 +680,7 @@ function NewSession({
   onCreated: (s: Session) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [name, setName] = useState("My first nail study"),
+  const [name, setName] = useState(() => t("My first nail study")),
     [consent, setConsent] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -676,23 +711,24 @@ function NewSession({
       <button
         className="modal-close icon-button"
         onClick={onClose}
-        aria-label="Close new session"
+        aria-label={t("Close new session")}
       >
         <X />
       </button>
-      <div className="eyebrow">ONE NAIL. A CLOSER LOOK.</div>
+      <div className="eyebrow">{t("ONE NAIL. A CLOSER LOOK.")}</div>
       <h2 id="new-session-title">
-        Begin your
+        {t("Begin your")}
         <br />
-        <em>form study.</em>
+        <em>{t("form study.")}</em>
       </h2>
       <p>
-        Set aside a few minutes, soft light, and a reference of known size.
-        We’ll guide you through each step.
+        {t(
+          "Set aside a few minutes, soft light, and a reference of known size. We’ll guide you through each step.",
+        )}
       </p>
       <form onSubmit={submit}>
         <label className="field-label" htmlFor="session-name">
-          Session name
+          {t("Session name")}
         </label>
         <input
           id="session-name"
@@ -706,8 +742,12 @@ function NewSession({
           <ShieldCheck size={21} />
           <p>
             {browserRuntime
-              ? "Photographs and studies are stored in this browser’s IndexedDB on this device. They are not sent to GitHub. There is no cloud sync or backup; clearing site data removes them. You can delete a session and its stored files at any time."
-              : "Photographs and measurements stay in this local research workspace. No analytics or third-party image processing. You can delete a session and its files at any time."}
+              ? t(
+                  "Photographs and studies are stored in this browser’s IndexedDB on this device. They are not sent to GitHub. There is no cloud sync or backup; clearing site data removes them. You can delete a session and its stored files at any time.",
+                )
+              : t(
+                  "Photographs and measurements stay in this local research workspace. No analytics or third-party image processing. You can delete a session and its files at any time.",
+                )}
           </p>
         </div>
         <label className="checkbox-label">
@@ -719,10 +759,15 @@ function NewSession({
           />
           <span>
             {browserRuntime
-              ? "I agree to store photographs and measurements in this browser on this device for this experimental research session. "
-              : "I agree to save photographs and measurements for this experimental research session. "}
-            I understand that generated objects are
-            non-wearable laboratory prototypes.
+              ? t(
+                  "I agree to store photographs and measurements in this browser on this device for this experimental research session.",
+                )
+              : t(
+                  "I agree to save photographs and measurements for this experimental research session.",
+                )}{" "}
+            {t(
+              "I understand that generated objects are non-wearable laboratory prototypes.",
+            )}
           </span>
         </label>
         {error && <ErrorNotice text={error} />}
@@ -731,7 +776,7 @@ function NewSession({
           type="submit"
           disabled={!consent || busy}
         >
-          {busy ? "Creating session…" : "Enter the measurement lab"}
+          {busy ? t("Creating session…") : t("Enter the measurement lab")}
           <ArrowRight size={18} />
         </button>
       </form>
@@ -865,17 +910,17 @@ function Capture({
     <>
       <div className="step-intro">
         <div>
-          <div className="eyebrow">01 / OBSERVE</div>
+          <div className="eyebrow">{t("01 / OBSERVE")}</div>
           <h2>
-            A new perspective
+            {t("A new perspective")}
             <br />
-            <em>on your natural shape.</em>
+            <em>{t("on your natural shape.")}</em>
           </h2>
         </div>
         <p>
-          Begin with the top view. Front and side views give your reviewer
-          context; this edition does not reconstruct 3D curvature from
-          photographs.
+          {t(
+            "Begin with the top view. Front and side views give your reviewer context; this edition does not reconstruct 3D curvature from photographs.",
+          )}
         </p>
       </div>
       <div className="capture-layout">
@@ -900,7 +945,7 @@ function Capture({
                         ? "03"
                         : "04"}
                 </span>
-                {v === "front" ? "Free edge" : v[0].toUpperCase() + v.slice(1)}
+                {captureViewLabel(v)}
                 {session.images?.some((i) => i.view === v) && (
                   <CheckCircle2 size={14} />
                 )}
@@ -913,36 +958,45 @@ function Capture({
                 <video ref={video} autoPlay playsInline muted />
                 <div className="capture-overlay">
                   <div className={"finger-guide " + view} />
-                  <span>Keep the whole nail within the guide</span>
+                  <span>{t("Keep the whole nail within the guide")}</span>
                 </div>
                 <span className="live-badge">
                   <span />
-                  LIVE PREVIEW
+                  {t("LIVE PREVIEW")}
                 </span>
               </>
             ) : image ? (
               <>
                 <img
                   src={image.url}
-                  alt={`${view} view, privately captured for this session`}
+                  alt={t("{view} view, privately captured for this session", {
+                    view: captureViewLabel(view),
+                  })}
                 />
                 <span className="image-badge">
-                  {image.width} × {image.height} PX · {view.toUpperCase()} VIEW
+                  {t("{width} × {height} px · {view}", {
+                    width: image.width,
+                    height: image.height,
+                    view: captureViewLabel(view),
+                  })}
                 </span>
               </>
             ) : (
               <div className="capture-empty">
                 <div className={"finger-guide " + view} />
                 <div>
-                  <span className="small-caps">{viewInfo[view].title}</span>
+                  <span className="small-caps">{t(viewInfo[view].title)}</span>
                   <h3>
-                    A clear image.
-                    <br />A careful beginning.
+                    {t("A clear image.")}
+                    <br />
+                    {t("A careful beginning.")}
                   </h3>
                   <p>
                     {browserRuntime
-                      ? "Your photograph stays in this browser on this device."
-                      : "Your photograph stays private in this workspace."}
+                      ? t(
+                          "Your photograph stays in this browser on this device.",
+                        )
+                      : t("Your photograph stays private in this workspace.")}
                   </p>
                 </div>
               </div>
@@ -950,7 +1004,7 @@ function Capture({
             {busy && (
               <div className="stage-loading" role="status">
                 <span className="spinner" />
-                Saving your photograph…
+                {t("Saving your photograph…")}
               </div>
             )}
           </div>
@@ -963,11 +1017,11 @@ function Capture({
                   disabled={busy}
                 >
                   <Camera size={18} />
-                  Capture photograph
+                  {t("Capture photograph")}
                 </button>
                 <button
                   className="icon-button"
-                  aria-label="Switch camera"
+                  aria-label={t("Switch camera")}
                   onClick={() =>
                     setFacing(facing === "environment" ? "user" : "environment")
                   }
@@ -978,7 +1032,7 @@ function Capture({
                   className="button subtle"
                   onClick={() => setCameraOpen(false)}
                 >
-                  Close camera
+                  {t("Close camera")}
                 </button>
               </>
             ) : (
@@ -992,7 +1046,7 @@ function Capture({
                   disabled={busy}
                 >
                   <Camera size={18} />
-                  {image ? "Retake photograph" : "Open camera"}
+                  {image ? t("Retake photograph") : t("Open camera")}
                 </button>
                 <button
                   className="button secondary"
@@ -1000,12 +1054,12 @@ function Capture({
                   disabled={busy}
                 >
                   <Upload size={17} />
-                  {image ? "Replace image" : "Upload a photo"}
+                  {image ? t("Replace image") : t("Upload a photo")}
                 </button>
                 {image && (
                   <button
                     className="icon-button danger"
-                    aria-label="Delete this photograph"
+                    aria-label={t("Delete this photograph")}
                     onClick={remove}
                     disabled={busy}
                   >
@@ -1019,7 +1073,7 @@ function Capture({
               type="file"
               accept="image/jpeg,image/png,image/webp"
               className="visually-hidden"
-              aria-label="Upload nail photograph"
+              aria-label={t("Upload nail photograph")}
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (f) upload(f);
@@ -1029,36 +1083,40 @@ function Capture({
           {error && <ErrorNotice text={error} />}
         </div>
         <aside className="capture-guide">
-          <div className="eyebrow">A FEW SMALL DETAILS</div>
-          <h3>{viewInfo[view].title}</h3>
-          <p>{viewInfo[view].description}</p>
+          <div className="eyebrow">{t("A FEW SMALL DETAILS")}</div>
+          <h3>{t(viewInfo[view].title)}</h3>
+          <p>{t(viewInfo[view].description)}</p>
           <ol>
             <li>
               <span>01</span>
               <div>
-                <strong>Soft, even light</strong>
+                <strong>{t("Soft, even light")}</strong>
                 <p>
-                  Near a window is ideal. Avoid glare, flash, and deep shadows.
+                  {t(
+                    "Near a window is ideal. Avoid glare, flash, and deep shadows.",
+                  )}
                 </p>
               </div>
             </li>
             <li>
               <span>02</span>
               <div>
-                <strong>Steady and in focus</strong>
+                <strong>{t("Steady and in focus")}</strong>
                 <p>
-                  Support your hand. Keep polish and objects from obscuring the
-                  nail boundary.
+                  {t(
+                    "Support your hand. Keep polish and objects from obscuring the nail boundary.",
+                  )}
                 </p>
               </div>
             </li>
             <li>
               <span>03</span>
               <div>
-                <strong>A meaningful reference</strong>
+                <strong>{t("A meaningful reference")}</strong>
                 <p>
-                  Place a flat ruler or known-size marker beside the nail, not
-                  above or behind it.
+                  {t(
+                    "Place a flat ruler or known-size marker beside the nail, not above or behind it.",
+                  )}
                 </p>
               </div>
             </li>
@@ -1066,8 +1124,9 @@ function Capture({
           <div className="soft-note">
             <ScanLine size={18} />
             <p>
-              A scale reference does not recover a curved surface from one
-              photograph.
+              {t(
+                "A scale reference does not recover a curved surface from one photograph.",
+              )}
             </p>
           </div>
         </aside>
@@ -1075,39 +1134,52 @@ function Capture({
       {image && (
         <div className="quality-strip">
           <div>
-            <span className="eyebrow">IMAGE QUALITY INDICATORS</span>
+            <span className="eyebrow">{t("IMAGE QUALITY INDICATORS")}</span>
             <strong>
               {image.quality?.warnings?.length
-                ? "Review this capture"
-                : "No basic quality flags"}
+                ? t("Review this capture")
+                : t("No basic quality flags")}
             </strong>
           </div>
           <div>
-            <span>Focus indicator</span>
-            <strong>{image.quality?.blur_score?.toFixed(1) ?? "—"}</strong>
+            <span>{t("Focus indicator")}</span>
+            <strong>
+              {image.quality?.blur_score != null
+                ? formatNumber(image.quality.blur_score, 1)
+                : "—"}
+            </strong>
           </div>
           <div>
-            <span>Mean brightness / 255</span>
-            <strong>{image.quality?.mean_brightness?.toFixed(0) ?? "—"}</strong>
+            <span>{t("Mean brightness / 255")}</span>
+            <strong>
+              {image.quality?.mean_brightness != null
+                ? formatNumber(image.quality.mean_brightness, 0)
+                : "—"}
+            </strong>
           </div>
           <p>
             {image.quality?.warnings?.length
-              ? image.quality.warnings.join(" · ")
-              : "Heuristic checks only. They do not establish accurate framing, calibration, or measurement."}
+              ? image.quality.warnings.map((warning) => t(warning)).join(" · ")
+              : t(
+                  "Heuristic checks only. They do not establish accurate framing, calibration, or measurement.",
+                )}
           </p>
         </div>
       )}
       <div className="step-bottom">
         <p>
-          {session.images?.length ?? 0} views saved · A top photograph is
-          required to continue.
+          {t(
+            "Saved views: {count}. A top photograph is required to continue.",
+            { count: session.images?.length ?? 0 },
+          )}
         </p>
         <button
           className="button primary"
           disabled={!hasTop || busy}
           onClick={onNext}
         >
-          Calibrate & trace <ArrowRight size={18} />
+          {t("Calibrate & trace")}
+          <ArrowRight size={18} />
         </button>
       </div>
     </>
@@ -1251,13 +1323,15 @@ function Geometry({
     return (
       <div className="empty-state">
         <ScanLine size={38} strokeWidth={1} />
-        <h2>First, establish a scale.</h2>
+        <h2>{t("First, establish a scale.")}</h2>
         <p>
-          Trace the nail and calibrate its photograph before generating
-          geometry. No physical dimensions will be invented.
+          {t(
+            "Trace the nail and calibrate its photograph before generating geometry. No physical dimensions will be invented.",
+          )}
         </p>
         <button className="button primary" onClick={onBack}>
-          Open calibration <ArrowRight size={18} />
+          {t("Open calibration")}
+          <ArrowRight size={18} />
         </button>
       </div>
     );
@@ -1265,52 +1339,55 @@ function Geometry({
     <>
       <div className="step-intro">
         <div>
-          <div className="eyebrow">03 / UNDERSTAND & EXPLORE</div>
+          <div className="eyebrow">{t("03 / UNDERSTAND & EXPLORE")}</div>
           <h2>
-            From a measured outline
+            {t("From a measured outline")}
             <br />
-            <em>to a considered form.</em>
+            <em>{t("to a considered form.")}</em>
           </h2>
         </div>
         <p>
-          A calibrated projection is the beginning. Inspect the measured values,
-          specify the missing geometry, then generate a laboratory shell.
+          {t(
+            "A calibrated projection is the beginning. Inspect the measured values, specify the missing geometry, then generate a laboratory shell.",
+          )}
         </p>
       </div>
       <div className="measurement-results">
         <MeasurementCard
-          title="Projected length"
+          title={t("Projected length")}
           value={measurement.length_mm}
-          label="Calibrated 2D"
+          label={t("Calibrated 2D")}
         />
         <MeasurementCard
-          title="Maximum projected width"
+          title={t("Maximum projected width")}
           value={measurement.width_mm}
-          label="Calibrated 2D"
+          label={t("Calibrated 2D")}
         />
         <div className="result-card unknown">
-          <span>Surface curvature</span>
-          <strong>Unknown</strong>
-          <Badge>Manual input required</Badge>
+          <span>{t("Surface curvature")}</span>
+          <strong>{t("Unknown")}</strong>
+          <Badge>{t("Manual input required")}</Badge>
         </div>
         <div className="result-card status">
-          <span>Measurement status</span>
+          <span>{t("Measurement status")}</span>
           <strong>
             {session.feedback?.contour_accepted
-              ? "Contour reviewed"
-              : "Review needed"}
+              ? t("Contour reviewed")
+              : t("Review needed")}
           </strong>
           <span className="fine-print">
-            Physical fit has not been validated.
+            {t("Physical fit has not been validated.")}
           </span>
         </div>
       </div>
       <div className="measurement-caveat">
         <AlertCircle size={17} />
         <p>
-          {measurement.uncertainty ||
-            "The reference and nail are assumed coplanar. Perspective and curved-surface error are not quantified."}{" "}
-          {measurement.warnings?.join(" ")}
+          {t(
+            measurement.uncertainty ||
+              "The reference and nail are assumed coplanar. Perspective and curved-surface error are not quantified.",
+          )}{" "}
+          {measurement.warnings?.map((warning) => t(warning)).join(" ")}
         </p>
       </div>
       <div className="geometry-layout">
@@ -1319,46 +1396,55 @@ function Geometry({
           {dirty && (
             <div className="model-stale">
               <AlertCircle size={16} />
-              Parameters have changed. Generate again to update the displayed
-              mesh and downloads.
+              {t(
+                "Parameters have changed. Generate again to update the displayed mesh and downloads.",
+              )}
             </div>
           )}
           <div className="model-caption">
             <div>
               <span className="eyebrow">
                 {session.latest_model
-                  ? "GENERATED LABORATORY SHELL"
-                  : "PARAMETRIC RESEARCH GEOMETRY"}
+                  ? t("GENERATED LABORATORY SHELL")
+                  : t("PARAMETRIC RESEARCH GEOMETRY")}
               </span>
               <p>
-                Approximation from dimensions and explicit design inputs. Not a
-                reconstructed nail surface or verified fit.
+                {t(
+                  "Approximation from dimensions and explicit design inputs. Not a reconstructed nail surface or verified fit.",
+                )}
               </p>
             </div>
-            <Badge tone="rose">EXPERIMENTAL</Badge>
+            <Badge tone="rose">{t("EXPERIMENTAL")}</Badge>
           </div>
           {session.latest_model && (
             <div className="export-panel">
               <div>
-                <h3>Take the geometry further.</h3>
+                <h3>{t("Take the geometry further.")}</h3>
                 <p>
-                  Exported from the same generated geometry shown above.
-                  Millimeters throughout.
+                  {t(
+                    "Exported from the same generated geometry shown above. Millimeters throughout.",
+                  )}
                 </p>
               </div>
               <div className="export-engine-note">
                 <span className="eyebrow">
                   {facetedGeometry
-                    ? "BROWSER GEOMETRY · FACETED SURFACES"
-                    : "PYTHON CAD · SMOOTH SURFACES"}
+                    ? t("BROWSER GEOMETRY · FACETED SURFACES")
+                    : t("PYTHON CAD · SMOOTH SURFACES")}
                 </span>
                 <p>
                   {facetedGeometry
-                    ? "STL and STEP use the same triangular mesh. STEP contains planar faces, not smooth spline surfaces. Browser mesh checks do not replace CAD-kernel validation. The local Python workflow retains the smooth CadQuery model."
-                    : "STEP preserves the smooth CadQuery surface model; STL and this viewer use its tessellated mesh. Automated checks are recorded in the validation report."}
+                    ? t(
+                        "STL and STEP use the same triangular mesh. STEP contains planar faces, not smooth spline surfaces. Browser mesh checks do not replace CAD-kernel validation. The local Python workflow retains the smooth CadQuery model.",
+                      )
+                    : t(
+                        "STEP preserves the smooth CadQuery surface model; STL and this viewer use its tessellated mesh. Automated checks are recorded in the validation report.",
+                      )}
                 </p>
                 {typeof geometryEngine === "string" && (
-                  <span className="fine-print">Engine: {geometryEngine}</span>
+                  <span className="fine-print">
+                    {t("Engine:")} {t(geometryEngine)}
+                  </span>
                 )}
               </div>
               <div className="download-buttons">
@@ -1379,16 +1465,18 @@ function Geometry({
                   href={session.latest_model.downloads.parameters}
                   download="nailform-lab-parameters.json"
                 >
-                  Parameters JSON <ExternalLink size={12} />
+                  {t("Parameters JSON")}
+                  <ExternalLink size={12} />
                 </a>
                 <a
                   href={session.latest_model.downloads.report}
                   download="nailform-lab-validation.json"
                 >
-                  Validation report <ExternalLink size={12} />
+                  {t("Validation report")}
+                  <ExternalLink size={12} />
                 </a>
                 <button onClick={() => setShowReport(!showReport)}>
-                  {showReport ? "Hide" : "Inspect"} checks
+                  {t(showReport ? "Hide checks" : "Inspect checks")}
                 </button>
               </div>
               {showReport && (
@@ -1409,16 +1497,17 @@ function Geometry({
         <form className="parameter-panel" onSubmit={generate}>
           <div className="panel-header">
             <SlidersHorizontal size={18} />
-            <h3>Define the form</h3>
+            <h3>{t("Define the form")}</h3>
           </div>
           <p className="panel-description">
-            Values below are research inputs. Curvature is not measured by this
-            workflow.
+            {t(
+              "Values below are research inputs. Curvature is not measured by this workflow.",
+            )}
           </p>
           {parameterLabels.map((field) => (
             <div className="parameter-field" key={field.key}>
               <label htmlFor={field.key}>
-                {field.label}
+                {t(field.label)}
                 <Badge
                   tone={
                     (field.key === "length_mm" &&
@@ -1433,8 +1522,8 @@ function Geometry({
                     parameters.length_mm === measurement.length_mm) ||
                   (field.key === "width_mm" &&
                     parameters.width_mm === measurement.width_mm)
-                    ? "2D measured"
-                    : "Manual"}
+                    ? t("2D measured")
+                    : t("Manual")}
                 </Badge>
               </label>
               <div className="number-input">
@@ -1464,12 +1553,13 @@ function Geometry({
                 />
                 <span>mm</span>
               </div>
-              <span className="field-help">{field.help}</span>
+              <span className="field-help">{t(field.help)}</span>
             </div>
           ))}
           <div className="parameter-field">
             <label htmlFor="tip-shape">
-              Extension shape <Badge>Manual</Badge>
+              {t("Extension shape")}
+              <Badge>{t("Manual")}</Badge>
             </label>
             <select
               id="tip-shape"
@@ -1482,9 +1572,9 @@ function Geometry({
                 setConfirmed(false);
               }}
             >
-              <option value="oval">Soft oval</option>
-              <option value="squoval">Squoval</option>
-              <option value="almond">Almond</option>
+              <option value="oval">{t("Soft oval")}</option>
+              <option value="squoval">{t("Squoval")}</option>
+              <option value="almond">{t("Almond")}</option>
             </select>
           </div>
           <label className="checkbox-label review-confirm">
@@ -1495,8 +1585,9 @@ function Geometry({
               required
             />
             <span>
-              I have reviewed the 2D measurements and manual inputs. This is an
-              unvalidated laboratory prototype.
+              {t(
+                "I have reviewed the 2D measurements and manual inputs. This is an unvalidated laboratory prototype.",
+              )}
             </span>
           </label>
           {error && <ErrorNotice text={error} />}
@@ -1508,34 +1599,37 @@ function Geometry({
             {busy ? (
               <>
                 <span className="spinner" />
-                Generating CAD…
+                {t("Generating CAD…")}
               </>
             ) : (
               <>
-                Generate laboratory model <MoveUpRight size={17} />
+                {t("Generate laboratory model")}
+                <MoveUpRight size={17} />
               </>
             )}
           </button>
           {cadAvailable === false && (
             <p className="field-help error-text">
               {browserRuntime
-                ? "Geometry generation is unavailable in this browser."
-                : "The CAD dependency is unavailable on the local service."}
+                ? t("Geometry generation is unavailable in this browser.")
+                : t("The CAD dependency is unavailable on the local service.")}
             </p>
           )}
           <p className="fine-print">
-            A new version is saved with each generation. Generation can take a
-            few seconds.
+            {t(
+              "A new version is saved with each generation. Generation can take a few seconds.",
+            )}
           </p>
         </form>
       </div>
       <div className="step-bottom">
         <button className="text-button" onClick={onBack}>
           <ChevronLeft size={16} />
-          Review the contour
+          {t("Review the contour")}
         </button>
         <button className="button primary" onClick={onReview}>
-          Professional review <ArrowRight size={17} />
+          {t("Professional review")}
+          <ArrowRight size={17} />
         </button>
       </div>
     </>
@@ -1552,12 +1646,12 @@ function MeasurementCard({
 }) {
   return (
     <div className="result-card">
-      <span>{title}</span>
+      <span>{t(title)}</span>
       <strong>
-        {value.toFixed(2)}
+        {formatNumber(value, 2)}
         <small> mm</small>
       </strong>
-      <Badge tone="green">{label}</Badge>
+      <Badge tone="green">{t(label)}</Badge>
     </div>
   );
 }
@@ -1633,17 +1727,17 @@ function Review({
     <>
       <div className="step-intro">
         <div>
-          <div className="eyebrow">04 / HUMAN JUDGMENT</div>
+          <div className="eyebrow">{t("04 / HUMAN JUDGMENT")}</div>
           <h2>
-            A closer review.
+            {t("A closer review.")}
             <br />
-            <em>A better next iteration.</em>
+            <em>{t("A better next iteration.")}</em>
           </h2>
         </div>
         <p>
-          Record what the photographs and geometry support. A technically valid
-          CAD solid is different from a design evaluated against an independent
-          reference.
+          {t(
+            "Record what the photographs and geometry support. A technically valid CAD solid is different from a design evaluated against an independent reference.",
+          )}
         </p>
       </div>
       <div className="review-layout">
@@ -1651,7 +1745,7 @@ function Review({
           <div className="review-photo">
             <div className="panel-header">
               <ImageIcon size={18} />
-              <h3>Capture evidence</h3>
+              <h3>{t("Capture evidence")}</h3>
             </div>
             {photo ? (
               <PhotoAnnotations
@@ -1662,7 +1756,7 @@ function Review({
               />
             ) : (
               <div className="compact-empty">
-                No photographs in this session.
+                {t("No photographs in this session.")}
               </div>
             )}
             <div className="photo-thumbnails">
@@ -1673,49 +1767,54 @@ function Review({
                   onClick={() => setSelectedPhoto(i.id)}
                 >
                   <img src={i.url} alt="" />
-                  {i.view}
+                  {captureViewLabel(i.view)}
                 </button>
               ))}
             </div>
           </div>
           <div className="review-provenance">
-            <h3>What do we actually know?</h3>
+            <h3>{t("What do we actually know?")}</h3>
             <dl>
               <div>
-                <dt>Projected length</dt>
+                <dt>{t("Projected length")}</dt>
                 <dd>
                   {session.measurement
-                    ? session.measurement.length_mm.toFixed(2) + " mm"
-                    : "Unknown"}
+                    ? formatNumber(session.measurement.length_mm, 2) + " mm"
+                    : t("Unknown")}
                   <Badge tone="green">
-                    {session.measurement ? "Calibrated 2D" : "Unavailable"}
+                    {session.measurement
+                      ? t("Calibrated 2D")
+                      : t("Unavailable")}
                   </Badge>
                 </dd>
               </div>
               <div>
-                <dt>Projected width</dt>
+                <dt>{t("Projected width")}</dt>
                 <dd>
                   {session.measurement
-                    ? session.measurement.width_mm.toFixed(2) + " mm"
-                    : "Unknown"}
+                    ? formatNumber(session.measurement.width_mm, 2) + " mm"
+                    : t("Unknown")}
                   <Badge tone="green">
-                    {session.measurement ? "Calibrated 2D" : "Unavailable"}
+                    {session.measurement
+                      ? t("Calibrated 2D")
+                      : t("Unavailable")}
                   </Badge>
                 </dd>
               </div>
               <div>
-                <dt>Transverse curvature</dt>
+                <dt>{t("Transverse curvature")}</dt>
                 <dd>
-                  Not measured<Badge>Manual CAD input</Badge>
+                  {t("Not measured")}
+                  <Badge>{t("Manual CAD input")}</Badge>
                 </dd>
               </div>
               <div>
-                <dt>Surface reconstruction</dt>
-                <dd>Unavailable</dd>
+                <dt>{t("Surface reconstruction")}</dt>
+                <dd>{t("Unavailable")}</dd>
               </div>
               <div>
-                <dt>Physical fit</dt>
-                <dd>Not validated</dd>
+                <dt>{t("Physical fit")}</dt>
+                <dd>{t("Not validated")}</dd>
               </div>
             </dl>
           </div>
@@ -1723,10 +1822,10 @@ function Review({
         <form className="review-form" onSubmit={save}>
           <div className="panel-header">
             <Microscope size={18} />
-            <h3>Professional observations</h3>
+            <h3>{t("Professional observations")}</h3>
           </div>
           <label className="field-label" htmlFor="review-state">
-            Research state
+            {t("Research state")}
           </label>
           <select
             id="review-state"
@@ -1738,13 +1837,14 @@ function Review({
           >
             {Object.entries(states).map(([key, label]) => (
               <option key={key} value={key}>
-                {label}
+                {t(label)}
               </option>
             ))}
           </select>
           <p className="field-help">
-            These states record research progress, never permission for human
-            wear.
+            {t(
+              "These states record research progress, never permission for human wear.",
+            )}
           </p>
           <div className="review-checks">
             <label className="checkbox-label">
@@ -1759,7 +1859,9 @@ function Review({
                   setSaved(false);
                 }}
               />
-              <span>The manually reviewed contour appears appropriate.</span>
+              <span>
+                {t("The manually reviewed contour appears appropriate.")}
+              </span>
             </label>
             <label className="checkbox-label">
               <input
@@ -1774,13 +1876,14 @@ function Review({
                 }}
               />
               <span>
-                The model geometry has been inspected, with limitations recorded
-                below.
+                {t(
+                  "The model geometry has been inspected, with limitations recorded below.",
+                )}
               </span>
             </label>
           </div>
           <fieldset className="issues-list">
-            <legend>Geometric observations</legend>
+            <legend>{t("Geometric observations")}</legend>
             {issues.map((issue) => (
               <label className="checkbox-label" key={issue}>
                 <input
@@ -1796,12 +1899,12 @@ function Review({
                     setSaved(false);
                   }}
                 />
-                <span>{issue}</span>
+                <span>{t(issue)}</span>
               </label>
             ))}
           </fieldset>
           <label className="field-label" htmlFor="review-notes">
-            Notes & reference observations
+            {t("Notes & reference observations")}
           </label>
           <textarea
             id="review-notes"
@@ -1812,20 +1915,22 @@ function Review({
               setFeedback({ ...feedback, notes: e.target.value });
               setSaved(false);
             }}
-            placeholder="Describe the observed geometry, independent reference used, and next adjustment…"
+            placeholder={t(
+              "Describe the observed geometry, independent reference used, and next adjustment…",
+            )}
           />
           {error && <ErrorNotice text={error} />}
           <button className="button primary full" disabled={busy} type="submit">
             {busy ? (
-              "Saving…"
+              t("Saving…")
             ) : saved ? (
               <>
                 <Check size={17} />
-                Review saved
+                {t("Review saved")}
               </>
             ) : (
               <>
-                Save professional review
+                {t("Save professional review")}
                 <Check size={17} />
               </>
             )}
@@ -1841,12 +1946,12 @@ function Review({
         <section className="review-model">
           <div className="section-intro">
             <div>
-              <div className="eyebrow">GEOMETRY EVIDENCE</div>
-              <h3>The latest form.</h3>
+              <div className="eyebrow">{t("GEOMETRY EVIDENCE")}</div>
+              <h3>{t("The latest form.")}</h3>
             </div>
             {modelVersions.length > 0 && (
               <select
-                aria-label="Compare a prior model version"
+                aria-label={t("Compare a prior model version")}
                 onChange={(e) =>
                   e.target.value
                     ? compare(e.target.value)
@@ -1854,7 +1959,7 @@ function Review({
                 }
                 defaultValue=""
               >
-                <option value="">Choose a baseline version</option>
+                <option value="">{t("Choose a baseline version")}</option>
                 {modelVersions.map((v, i) => (
                   <option key={v.id} value={v.model_id}>
                     {i + 1} · {date(v.created_at)}
@@ -1869,7 +1974,7 @@ function Review({
       <section className="version-section">
         <div className="panel-header">
           <Clock3 size={18} />
-          <h3>Research history</h3>
+          <h3>{t("Research history")}</h3>
         </div>
         {session.versions?.length ? (
           <ol>
@@ -1877,9 +1982,9 @@ function Review({
               <li key={v.id}>
                 <span className="timeline-dot" />
                 <div>
-                  <strong>{v.summary || v.kind.replaceAll("_", " ")}</strong>
+                  <strong>{t(v.summary || v.kind.replaceAll("_", " "))}</strong>
                   <span>
-                    {date(v.created_at)} · {v.kind.replaceAll("_", " ")}
+                    {date(v.created_at)} · {t(v.kind.replaceAll("_", " "))}
                   </span>
                 </div>
               </li>
@@ -1887,22 +1992,24 @@ function Review({
           </ol>
         ) : (
           <p>
-            No saved revisions yet. Calibration, generation, and review will
-            appear here.
+            {t(
+              "No saved revisions yet. Calibration, generation, and review will appear here.",
+            )}
           </p>
         )}
       </section>
       <div className="delete-section">
         <div>
-          <h3>Your data, your decision.</h3>
+          <h3>{t("Your data, your decision.")}</h3>
           <p>
-            Remove this session, its photographs, measurements, and exported
-            models.
+            {t(
+              "Remove this session, its photographs, measurements, and exported models.",
+            )}
           </p>
         </div>
         <button className="button secondary danger" onClick={onDelete}>
           <Trash2 size={16} />
-          Delete session
+          {t("Delete session")}
         </button>
       </div>
     </>
@@ -1944,31 +2051,34 @@ function Research({
     <div className="workspace research-workspace">
       <div className="research-heading">
         <div>
-          <div className="eyebrow">THE RESEARCH JOURNAL</div>
+          <div className="eyebrow">{t("THE RESEARCH JOURNAL")}</div>
           <h1>
-            Small observations.
+            {t("Small observations.")}
             <br />
-            <em>Meaningful progress.</em>
+            <em>{t("Meaningful progress.")}</em>
           </h1>
           <p>
             {browserRuntime
-              ? "A record saved in this browser on this device. Every number below comes from saved sessions, not simulated customer data."
-              : "A private record of this workspace. Every number below comes from saved sessions, not simulated customer data."}
+              ? t(
+                  "A record saved in this browser on this device. Every number below comes from saved sessions, not simulated customer data.",
+                )
+              : t(
+                  "A private record of this workspace. Every number below comes from saved sessions, not simulated customer data.",
+                )}
           </p>
         </div>
         <button className="button primary" onClick={onNew}>
           <Plus size={17} />
-          New form study
+          {t("New form study")}
         </button>
       </div>
       {browserRuntime && (
         <div className="storage-notice">
           <ShieldCheck size={18} />
           <p>
-            Studies and photographs are saved in this browser’s IndexedDB on
-            this device. Photos are not sent to GitHub. There is no cloud sync
-            or backup; clearing site data removes these studies. Delete a
-            session below to remove its stored data.
+            {t(
+              "Studies and photographs are saved in this browser’s IndexedDB on this device. Photos are not sent to GitHub. There is no cloud sync or backup; clearing site data removes these studies. Delete a session below to remove its stored data.",
+            )}
           </p>
         </div>
       )}
@@ -1987,7 +2097,7 @@ function Research({
           {
             label: "Photographs saved",
             value: images,
-            note: qualityFlags + " with quality flags",
+            note: t("Quality flags: {count}", { count: qualityFlags }),
           },
           {
             label: "Sessions with CAD",
@@ -1996,22 +2106,22 @@ function Research({
           },
         ].map((m) => (
           <div key={m.label}>
-            <span>{m.label}</span>
+            <span>{t(m.label)}</span>
             <strong>{m.value.toString().padStart(2, "0")}</strong>
-            <p>{m.note}</p>
+            <p>{t(m.note)}</p>
           </div>
         ))}
       </div>
       <ResearchEvidence sessions={sessions} />
       <div className="session-list-heading">
         <h2>
-          Your form studies{" "}
+          {t("Your form studies")}{" "}
           <span>{sessions.length.toString().padStart(2, "0")}</span>
         </h2>
         <Badge>
           {browserRuntime
-            ? "THIS BROWSER · THIS DEVICE"
-            : "PRIVATE · THIS BROWSER WORKSPACE"}
+            ? t("THIS BROWSER · THIS DEVICE")
+            : t("PRIVATE · THIS BROWSER WORKSPACE")}
         </Badge>
       </div>
       {sessions.length ? (
@@ -2035,21 +2145,22 @@ function Research({
                   <div className="session-details">
                     <h3>{s.name}</h3>
                     <span>
-                      {date(s.updated_at)} · {s.images?.length ?? 0} views
+                      {date(s.updated_at)} ·{" "}
+                      {t("Views: {count}", { count: s.images?.length ?? 0 })}
                     </span>
                   </div>
-                  <Badge>{states[s.state] ?? s.state}</Badge>
+                  <Badge>{t(states[s.state] ?? s.state)}</Badge>
                   <span className="session-summary">
                     {s.measurement
-                      ? s.measurement.length_mm.toFixed(2) +
+                      ? formatNumber(s.measurement.length_mm, 2) +
                         " × " +
-                        s.measurement.width_mm.toFixed(2) +
+                        formatNumber(s.measurement.width_mm, 2) +
                         " mm"
-                      : "Awaiting calibration"}
+                      : t("Awaiting calibration")}
                     <small>
                       {s.measurement
-                        ? "Calibrated 2D projection"
-                        : "No measurements inferred"}
+                        ? t("Calibrated 2D projection")
+                        : t("No measurements inferred")}
                     </small>
                   </span>
                   <ArrowUpRight size={22} />
@@ -2057,7 +2168,7 @@ function Research({
                 <button
                   className="icon-button danger"
                   onClick={() => onDelete(s.id)}
-                  aria-label={"Delete " + s.name}
+                  aria-label={t("Delete session {name}", { name: s.name })}
                 >
                   <Trash2 size={17} />
                 </button>
@@ -2069,64 +2180,69 @@ function Research({
           <div className="journal-empty-icon">
             <ScanLine size={38} strokeWidth={1} />
           </div>
-          <span className="eyebrow">A CLEAN PAGE</span>
+          <span className="eyebrow">{t("A CLEAN PAGE")}</span>
           <h2>
-            Every study begins
+            {t("Every study begins")}
             <br />
-            <em>with a closer look.</em>
+            <em>{t("with a closer look.")}</em>
           </h2>
           <p>
-            Your photographs, measurements, geometry revisions, and professional
-            notes will live here.
+            {t(
+              "Your photographs, measurements, geometry revisions, and professional notes will live here.",
+            )}
           </p>
           <button className="button primary" onClick={onNew}>
-            Start your first study <ArrowUpRight size={18} />
+            {t("Start your first study")}
+            <ArrowUpRight size={18} />
           </button>
         </div>
       )}
       <div className="research-methods">
         <div>
-          <div className="eyebrow">METHOD REGISTER</div>
-          <h3>What this edition can establish.</h3>
+          <div className="eyebrow">{t("METHOD REGISTER")}</div>
+          <h3>{t("What this edition can establish.")}</h3>
           <p>
-            Future experiments should compare independently measured references
-            and repeated captures. No accuracy or repeatability claims are
-            established here.
+            {t(
+              "Future experiments should compare independently measured references and repeated captures. No accuracy or repeatability claims are established here.",
+            )}
           </p>
         </div>
         <div className="method-list">
           <div>
             <span>A</span>
             <div>
-              <strong>Calibrated photographs</strong>
+              <strong>{t("Calibrated photographs")}</strong>
               <p>
-                2D projected length, width, and sectional widths. Reference
-                coplanarity is assumed.
+                {t(
+                  "2D projected length, width, and sectional widths. Reference coplanarity is assumed.",
+                )}
               </p>
             </div>
-            <Badge tone="green">Implemented</Badge>
+            <Badge tone="green">{t("Implemented")}</Badge>
           </div>
           <div>
             <span>B</span>
             <div>
-              <strong>Touch & slide</strong>
+              <strong>{t("Touch & slide")}</strong>
               <p>
-                Not validated or enabled. Display pixels do not establish
-                physical millimeters.
+                {t(
+                  "Not validated or enabled. Display pixels do not establish physical millimeters.",
+                )}
               </p>
             </div>
-            <Badge>Research only</Badge>
+            <Badge>{t("Research only")}</Badge>
           </div>
           <div>
             <span>C</span>
             <div>
-              <strong>Multi-view recovery</strong>
+              <strong>{t("Multi-view recovery")}</strong>
               <p>
-                Complementary images are saved for review. Automatic 3D recovery
-                is not implemented.
+                {t(
+                  "Complementary images are saved for review. Automatic 3D recovery is not implemented.",
+                )}
               </p>
             </div>
-            <Badge>Research only</Badge>
+            <Badge>{t("Research only")}</Badge>
           </div>
         </div>
       </div>

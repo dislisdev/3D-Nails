@@ -1,3 +1,5 @@
+import { getLanguage } from "./i18n";
+
 export type Point = { x: number; y: number };
 export type Calibration = { a: Point; b: Point; reference_mm: number };
 export type CaptureView = "top" | "front" | "side" | "oblique";
@@ -116,7 +118,7 @@ export async function api<T>(
   return response.json() as Promise<T>;
 }
 export function date(value: string) {
-  return new Intl.DateTimeFormat("en-GB", {
+  return new Intl.DateTimeFormat(getLanguage() === "el" ? "el-GR" : "en-GB", {
     day: "numeric",
     month: "short",
     hour: "2-digit",

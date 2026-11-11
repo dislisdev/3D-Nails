@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { api } from "./types";
 import type { Session, Point, Calibration, Measurement } from "./types";
+import { t, useLanguage, formatNumber } from "./i18n";
 
 function template(w: number, h: number): Point[] {
   return [
@@ -34,14 +35,14 @@ function template(w: number, h: number): Point[] {
 }
 function label(i: number) {
   return i === 0
-    ? "Cuticle midpoint"
+    ? t("Cuticle midpoint")
     : i === 3
-      ? "Right sidewall"
+      ? t("Right sidewall")
       : i === 6
-        ? "Distal midpoint"
+        ? t("Distal midpoint")
         : i === 9
-          ? "Left sidewall"
-          : "Contour point " + (i + 1);
+          ? t("Left sidewall")
+          : t("Contour point {n}", { n: formatNumber(i + 1, 0) });
 }
 export default function ContourEditor({
   session,
@@ -50,6 +51,7 @@ export default function ContourEditor({
   session: Session;
   onMeasured: () => Promise<void>;
 }) {
+  useLanguage();
   const image = session.images?.filter((i) => i.view === "top").at(-1);
   const [points, setPoints] = useState<Point[]>([]),
     [calibration, setCalibration] = useState<Calibration>({
@@ -105,10 +107,11 @@ export default function ContourEditor({
     return (
       <div className="empty-state">
         <ScanLine size={38} strokeWidth={1} />
-        <h2>A photograph comes first.</h2>
+        <h2>{t("A photograph comes first.")}</h2>
         <p>
-          Upload or capture a top view in the Capture step. Include a reference
-          whose physical size you know.
+          {t(
+            "Upload or capture a top view in the Capture step. Include a reference whose physical size you know.",
+          )}
         </p>
       </div>
     );
@@ -279,17 +282,17 @@ export default function ContourEditor({
     <>
       <div className="step-intro">
         <div>
-          <div className="eyebrow">02 / CALIBRATE & TRACE</div>
+          <div className="eyebrow">{t("02 / CALIBRATE & TRACE")}</div>
           <h2>
-            Observe the edges.
+            {t("Observe the edges.")}
             <br />
-            <em>Give the image a scale.</em>
+            <em>{t("Give the image a scale.")}</em>
           </h2>
         </div>
         <p>
-          Place the two scale points on a known reference. Then move all twelve
-          outline points onto the visible nail boundary, starting with the
-          cuticle.
+          {t(
+            "Place the two scale points on a known reference. Then move all twelve outline points onto the visible nail boundary, starting with the cuticle.",
+          )}
         </p>
       </div>
       <div className="editor-layout">
@@ -301,19 +304,19 @@ export default function ContourEditor({
                 onClick={() => setMode("contour")}
               >
                 <MousePointer2 size={15} />
-                Outline
+                {t("Outline")}
               </button>
               <button
                 className={mode === "calibration" ? "active" : ""}
                 onClick={() => setMode("calibration")}
               >
                 <SlidersHorizontal size={15} />
-                Scale
+                {t("Scale")}
               </button>
               <button
                 className={mode === "pan" ? "active" : ""}
                 onClick={() => setMode("pan")}
-                aria-label="Pan image"
+                aria-label={t("Pan image")}
               >
                 <Move size={16} />
               </button>
@@ -321,7 +324,7 @@ export default function ContourEditor({
             <div className="editor-tool-icons">
               <button
                 className="icon-button"
-                aria-label="Undo contour adjustment"
+                aria-label={t("Undo contour adjustment")}
                 disabled={!history.length}
                 onClick={undo}
               >
@@ -329,7 +332,7 @@ export default function ContourEditor({
               </button>
               <button
                 className="icon-button"
-                aria-label="Reset outline to manual template"
+                aria-label={t("Reset outline to manual template")}
                 onClick={reset}
               >
                 <RotateCcw size={16} />
@@ -337,7 +340,7 @@ export default function ContourEditor({
               <span />
               <button
                 className="icon-button"
-                aria-label="Zoom out"
+                aria-label={t("Zoom out")}
                 disabled={zoom <= 1}
                 onClick={() => {
                   setZoom(Math.max(1, zoom - 0.5));
@@ -346,10 +349,12 @@ export default function ContourEditor({
               >
                 <ZoomOut size={17} />
               </button>
-              <span className="zoom-value">{Math.round(zoom * 100)}%</span>
+              <span className="zoom-value">
+                {formatNumber(Math.round(zoom * 100), 0)}%
+              </span>
               <button
                 className="icon-button"
-                aria-label="Zoom in"
+                aria-label={t("Zoom in")}
                 disabled={zoom >= 4}
                 onClick={() => setZoom(Math.min(4, zoom + 0.5))}
               >
@@ -362,7 +367,9 @@ export default function ContourEditor({
               ref={svg}
               viewBox={`${vx} ${vy} ${vw} ${vh}`}
               role="group"
-              aria-label="Nail boundary editor with twelve draggable control points and two calibration points"
+              aria-label={t(
+                "Nail boundary editor with twelve draggable control points and two calibration points",
+              )}
               onPointerMove={move}
               onPointerUp={() => {
                 drag.current = null;
@@ -407,7 +414,10 @@ export default function ContourEditor({
                     tabIndex={0}
                     role="slider"
                     aria-label={label(i)}
-                    aria-valuetext={`Image pixel ${p.x.toFixed(0)}, ${p.y.toFixed(0)}`}
+                    aria-valuetext={t("Image pixel {x}, {y}", {
+                      x: formatNumber(p.x, 0),
+                      y: formatNumber(p.y, 0),
+                    })}
                     aria-valuemin={0}
                     aria-valuemax={w}
                     aria-valuenow={Math.round(p.x)}
@@ -451,11 +461,16 @@ export default function ContourEditor({
                     strokeWidth={r * 0.16}
                     tabIndex={0}
                     role="slider"
-                    aria-label={"Calibration point " + key.toUpperCase()}
+                    aria-label={t("Calibration point {point}", {
+                      point: key.toUpperCase(),
+                    })}
                     aria-valuemin={0}
                     aria-valuemax={w - 1}
                     aria-valuenow={Math.round(calibration[key].x)}
-                    aria-valuetext={`Image pixel ${calibration[key].x.toFixed(0)}, ${calibration[key].y.toFixed(0)}`}
+                    aria-valuetext={t("Image pixel {x}, {y}", {
+                      x: formatNumber(calibration[key].x, 0),
+                      y: formatNumber(calibration[key].y, 0),
+                    })}
                     onKeyDown={(e) => calibrationKeyboard(e, key)}
                     onPointerDown={(e) =>
                       start(e, mode === "pan" ? "pan" : "calibration", 0, key)
@@ -477,42 +492,52 @@ export default function ContourEditor({
               ))}
             </svg>
             <div className="editor-image-label">
-              ORIGINAL IMAGE · {w} × {h} PX
+              {t("ORIGINAL IMAGE · {width} × {height} PX", {
+                width: formatNumber(w, 0),
+                height: formatNumber(h, 0),
+              })}
             </div>
           </div>
           <div className="editor-legend">
             <span>
-              <i className="rose-dot" />C · cuticle
+              <i className="rose-dot" />
+              {t("C · cuticle")}
             </span>
-            <span>L / R · sidewalls</span>
+            <span>{t("L / R · sidewalls")}</span>
             <span>
-              <i className="champagne-dot" />D · distal edge
+              <i className="champagne-dot" />
+              {t("D · distal edge")}
             </span>
             <span>
-              <i className="gold-line" />A — B · scale reference
+              <i className="gold-line" />
+              {t("A — B · scale reference")}
             </span>
           </div>
           <p className="editor-keyboard">
-            Drag a point, or focus it and use arrow keys. Shift + arrow moves 10
-            image pixels. Use Pan mode to move the zoomed image.
+            {t(
+              "Drag a point, or focus it and use arrow keys. Shift + arrow moves 10 image pixels. Use Pan mode to move the zoomed image.",
+            )}
           </p>
           <div className="template-notice">
             <AlertCircle size={16} />
             <span>
-              {dirty
-                ? "Unsaved manual adjustments. Previous measurements refer to the last saved contour."
-                : session.measurement?.image_id === image.id
-                  ? "Saved manually reviewed contour. Changes require a new measurement review."
-                  : "This starts as a manual template, not automatic nail detection. Review every point."}
+              {t(
+                dirty
+                  ? "Unsaved manual adjustments. Previous measurements refer to the last saved contour."
+                  : session.measurement?.image_id === image.id
+                    ? "Saved manually reviewed contour. Changes require a new measurement review."
+                    : "This starts as a manual template, not automatic nail detection. Review every point.",
+              )}
             </span>
           </div>
         </div>
         <aside className="calibration-panel">
-          <span className="eyebrow">A / CALIBRATED PHOTOGRAPH</span>
-          <h3>First, the reference.</h3>
+          <span className="eyebrow">{t("A / CALIBRATED PHOTOGRAPH")}</span>
+          <h3>{t("First, the reference.")}</h3>
           <p>
-            Use a dimension independently known in millimeters. Place A and B at
-            its exact endpoints.
+            {t(
+              "Use a dimension independently known in millimeters. Place A and B at its exact endpoints.",
+            )}
           </p>
           <div className="reference-buttons">
             <button
@@ -524,7 +549,7 @@ export default function ContourEditor({
                 setCalPoint("a");
               }}
             >
-              Set A · start
+              {t("Set A · start")}
             </button>
             <button
               className={
@@ -535,11 +560,11 @@ export default function ContourEditor({
                 setCalPoint("b");
               }}
             >
-              Set B · end
+              {t("Set B · end")}
             </button>
           </div>
           <label className="field-label" htmlFor="reference-size">
-            Known reference length
+            {t("Known reference length")}
           </label>
           <div className="number-input">
             <input
@@ -549,7 +574,7 @@ export default function ContourEditor({
               max="200"
               step="any"
               value={reference}
-              placeholder="e.g. 10"
+              placeholder={t("e.g. 10")}
               onChange={(e) => {
                 setReference(e.target.value);
                 setCalibration({
@@ -565,8 +590,11 @@ export default function ContourEditor({
           </div>
           <p className="field-help">
             {scale
-              ? `${distance.toFixed(1)} image px · ${scale.toFixed(5)} mm / image px`
-              : "No physical scale established yet."}
+              ? t("{distance} image px · {scale} mm / image px", {
+                  distance: formatNumber(distance, 1),
+                  scale: formatNumber(scale, 5),
+                })
+              : t("No physical scale established yet.")}
           </p>
           <label className="checkbox-label">
             <input
@@ -575,18 +603,20 @@ export default function ContourEditor({
               onChange={(e) => setScaleReviewed(e.target.checked)}
             />
             <span>
-              I placed the scale on the known-size reference and kept it
-              approximately in the nail plane.
+              {t(
+                "I placed the scale on the known-size reference and kept it approximately in the nail plane.",
+              )}
             </span>
           </label>
           <div className="panel-divider" />
-          <h3>Then, the outline.</h3>
+          <h3>{t("Then, the outline.")}</h3>
           <p>
-            Align C with the cuticle midpoint and D with the distal midpoint.
-            Follow the boundary clockwise. R and L mark the sidewalls.
+            {t(
+              "Align C with the cuticle midpoint and D with the distal midpoint. Follow the boundary clockwise. R and L mark the sidewalls.",
+            )}
           </p>
           <button className="text-button" onClick={() => setMode("contour")}>
-            Edit the twelve control points <ArrowRight size={15} />
+            {t("Edit the twelve control points")} <ArrowRight size={15} />
           </button>
           <label className="checkbox-label">
             <input
@@ -595,21 +625,23 @@ export default function ContourEditor({
               onChange={(e) => setReviewed(e.target.checked)}
             />
             <span>
-              I have manually reviewed all twelve boundary points and the
-              cuticle-to-distal direction.
+              {t(
+                "I have manually reviewed all twelve boundary points and the cuticle-to-distal direction.",
+              )}
             </span>
           </label>
           <div className="soft-note">
             <AlertCircle size={16} />
             <p>
-              This yields projected 2D dimensions. A two-point reference does
-              not correct perspective or recover surface curvature.
+              {t(
+                "This yields projected 2D dimensions. A two-point reference does not correct perspective or recover surface curvature.",
+              )}
             </p>
           </div>
           {error && (
             <div className="error-notice" role="alert">
               <AlertCircle size={17} />
-              <span>{error}</span>
+              <span>{t(error)}</span>
             </div>
           )}
           <button
@@ -620,17 +652,18 @@ export default function ContourEditor({
             {busy ? (
               <>
                 <span className="spinner" />
-                Measuring…
+                {t("Measuring…")}
               </>
             ) : (
               <>
-                Save & measure <Check size={17} />
+                {t("Save & measure")} <Check size={17} />
               </>
             )}
           </button>
           <p className="fine-print">
-            The contour, scale, and measurement provenance are saved as a
-            research version.
+            {t(
+              "The contour, scale, and measurement provenance are saved as a research version.",
+            )}
           </p>
         </aside>
       </div>

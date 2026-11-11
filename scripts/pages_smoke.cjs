@@ -143,6 +143,23 @@ async function screenshot(page, name) {
   try {
     await page.goto(target);
     await page.evaluate(() => document.fonts.ready);
+    check(
+      "Greek is the default document language",
+      (await page.locator("html").getAttribute("lang")) === "el",
+    );
+    const greekHero = await page.locator(".hero-copy").innerText();
+    check(
+      "Greek landing copy is translated",
+      /[\u0370-\u03ff]/.test(greekHero) &&
+        !greekHero.includes("Designed for") &&
+        !greekHero.includes("Start measurement"),
+    );
+    await screenshot(page, "pages-greek-desktop-landing");
+    await page.getByRole("button", { name: "English", exact: true }).click();
+    check(
+      "English remains selectable",
+      (await page.locator("html").getAttribute("lang")) === "en",
+    );
     await page.getByRole("heading", { name: /Designed for/ }).waitFor();
     check("static assets load under the GitHub project subpath");
     await screenshot(page, "pages-desktop-landing");
@@ -364,6 +381,91 @@ async function screenshot(page, name) {
       "download Blob URLs are regenerated correctly after reload",
       Buffer.compare(stl, restoredSTL) === 0,
     );
+    await page.getByRole("button", { name: "Ελληνικά", exact: true }).click();
+    check(
+      "switching to Greek preserves the measured dimensions",
+      Number(await page.locator("#length_mm").inputValue()) === 16 &&
+        Number(await page.locator("#width_mm").inputValue()) === 10,
+    );
+    const greekParameters = await page.locator(".parameter-panel").innerText();
+    check(
+      "Greek geometry controls are translated",
+      /[\u0370-\u03ff]/.test(greekParameters) &&
+        !greekParameters.includes("Define the form") &&
+        !greekParameters.includes("Generate laboratory model"),
+    );
+    check(
+      "Greek measurements use localized decimal separators",
+      (await page.locator(".measurement-results").innerText()).includes(
+        "16,00",
+      ),
+    );
+    await page.locator("#transverse_rise_mm").fill("6");
+    await page.locator(".review-confirm input[type=checkbox]").check();
+    await page.locator(".parameter-panel button[type=submit]").click();
+    const localizedError = page.locator(".parameter-panel [role=alert]");
+    await localizedError.waitFor();
+    const greekError = await localizedError.innerText();
+    check(
+      "geometry validation errors are translated into Greek",
+      /[\u0370-\u03ff]/.test(greekError) &&
+        !greekError.includes("Transverse rise"),
+    );
+    await page.getByRole("button", { name: "English", exact: true }).click();
+    check(
+      "an existing error follows the selected language",
+      (await localizedError.innerText()).includes("Transverse rise"),
+    );
+    await page.getByRole("button", { name: "Ελληνικά", exact: true }).click();
+    await page.locator("#transverse_rise_mm").fill("1.2");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await screenshot(page, "pages-greek-mobile-geometry");
+    check(
+      "Greek mobile geometry has no horizontal overflow",
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    );
+    await page.setViewportSize({ width: 320, height: 740 });
+    check(
+      "Greek narrow mobile layout has no horizontal overflow",
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    );
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.reload();
+    check(
+      "Greek preference survives reload",
+      (await page.locator("html").getAttribute("lang")) === "el",
+    );
+    const persistedGreekHero = await page.locator(".hero-copy").innerText();
+    check(
+      "persisted Greek preference renders Greek copy",
+      /[\u0370-\u03ff]/.test(persistedGreekHero) &&
+        !persistedGreekHero.includes("Designed for"),
+    );
+    await page.getByRole("button", { name: "English", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Research journal", exact: true })
+      .click();
+    await page
+      .getByRole("heading", {
+        name: "Synthetic GitHub Pages workflow",
+        exact: true,
+      })
+      .waitFor();
+    check(
+      "language changes preserve user-entered names",
+      (await page
+        .getByRole("heading", {
+          name: "Synthetic GitHub Pages workflow",
+          exact: true,
+        })
+        .count()) === 1,
+    );
+    await page.locator(".session-open").first().click();
+    await page.locator(".viewer canvas").waitFor();
     await page.setViewportSize({ width: 390, height: 844 });
     await screenshot(page, "pages-mobile-geometry");
     check(
@@ -384,6 +486,9 @@ async function screenshot(page, name) {
     const isolated = await browser.newContext();
     const isolatedPage = await isolated.newPage();
     await isolatedPage.goto(target);
+    await isolatedPage
+      .getByRole("button", { name: "English", exact: true })
+      .click();
     await isolatedPage
       .getByRole("button", { name: "Research journal", exact: true })
       .click();

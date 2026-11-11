@@ -146,6 +146,9 @@ async function dragPoint(page, index, target) {
     permissions: ["camera"],
     acceptDownloads: true,
   });
+  await context.addInitScript(() =>
+    localStorage.setItem("nailform:language", "en"),
+  );
   await context.addInitScript(() => {
     const nativeGetUserMedia = navigator.mediaDevices.getUserMedia.bind(
       navigator.mediaDevices,
@@ -533,6 +536,7 @@ async function dragPoint(page, index, target) {
       viewport: { width: 390, height: 844 },
     });
     await deniedContext.addInitScript(() => {
+      localStorage.setItem("nailform:language", "en");
       navigator.mediaDevices.getUserMedia = async () => {
         throw new DOMException("Test permission denied", "NotAllowedError");
       };

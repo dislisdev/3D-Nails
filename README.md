@@ -16,6 +16,8 @@ node scripts/pages_smoke.cjs
 
 The Pages edition uses IndexedDB on the visitor's device; photographs and research records are not uploaded to GitHub. Deleting browser storage removes those records. There is no cloud sync, account recovery or automatic backup. The same consent, contour, calibration, review and deletion workflow is available without a Python server.
 
+The interface defaults to Greek. The **ΕΛ / EN** control switches between Greek and English and retains that preference in the browser. Navigation, acquisition/calibration guidance, review, research tables, accessibility labels and known validation errors are localized. Dates and displayed measurements follow the selected locale. User-written names/notes and machine-readable CAD/JSON contracts are preserved. Greek font subsets are bundled locally.
+
 Browser geometry uses an explicitly labelled faceted approximation of the same parametric surface. The displayed closed triangular mesh, binary STL, and faceted STEP share the same coordinates. Six representative STEP variants have been independently imported into OpenCascade during development; the browser itself does not run OpenCascade or prove global fit/thickness/self-intersection properties. The Python workflow below retains its smooth B-spline CadQuery engine and server-side checks.
 
 ## Run

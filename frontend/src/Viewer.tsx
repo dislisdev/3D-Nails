@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { Box, RotateCcw, Layers, Move3D, MapPin } from "lucide-react";
 import type { Generation } from "./types";
+import { t } from "./i18n";
 
 type Props = { model?: Generation; comparison?: Generation };
 export default function Viewer({ model, comparison }: Props) {
@@ -174,27 +175,32 @@ export default function Viewer({ model, comparison }: Props) {
     <div className="viewer">
       <div className="viewer-label">
         <span className="status-dot" />{" "}
-        {model ? "ACTUAL EXPORTED GEOMETRY" : "YOUR MODEL, AFTER REVIEW"}
+        {t(model ? "ACTUAL EXPORTED GEOMETRY" : "YOUR MODEL, AFTER REVIEW")}
       </div>
       <div
         ref={element}
         className="viewer-canvas"
         role="img"
-        aria-label={`Interactive three dimensional nail shell${model?.metadata.geometry_kind === "faceted_parametric_shell" ? ", showing the same faceted mesh used for STL and STEP export" : ""}. Drag to rotate, pinch or scroll to zoom; right drag to pan.`}
+        aria-label={t(
+          model?.metadata.geometry_kind === "faceted_parametric_shell"
+            ? "Interactive three dimensional nail shell, showing the same faceted mesh used for STL and STEP export. Drag to rotate, pinch or scroll to zoom; right drag to pan."
+            : "Interactive three dimensional nail shell. Drag to rotate, pinch or scroll to zoom; right drag to pan.",
+        )}
       />
       {!model && (
         <div className="viewer-empty">
           <Box size={44} strokeWidth={1} />
-          <h3>A form of your own.</h3>
+          <h3>{t("A form of your own.")}</h3>
           <p>
-            Complete calibration and review your parameters to generate an
-            inspectable laboratory model.
+            {t(
+              "Complete calibration and review your parameters to generate an inspectable laboratory model.",
+            )}
           </p>
         </div>
       )}
       {error && (
         <div className="viewer-empty">
-          <p>{error}</p>
+          <p>{t(error)}</p>
         </div>
       )}
       {model && (
@@ -202,11 +208,11 @@ export default function Viewer({ model, comparison }: Props) {
           <div className="viewer-views">
             {["top", "below", "front", "side"].map((v) => (
               <button key={v} onClick={() => view(v)}>
-                {v}
+                {t(v)}
               </button>
             ))}
             <button
-              aria-label="Reset 3D view"
+              aria-label={t("Reset 3D view")}
               onClick={() => view("perspective")}
             >
               <RotateCcw size={14} />
@@ -219,16 +225,16 @@ export default function Viewer({ model, comparison }: Props) {
               onClick={() => setLandmarks(!landmarks)}
             >
               <MapPin size={16} />
-              Landmarks
+              {t("Landmarks")}
             </button>
             <button
               className={axes ? "active" : ""}
               aria-pressed={axes}
               onClick={() => setAxes(!axes)}
-              title="Reference axes"
+              title={t("Reference axes")}
             >
               <Move3D size={17} />
-              Axes
+              {t("Axes")}
             </button>
             <button
               className={wireframe ? "active" : ""}
@@ -236,23 +242,25 @@ export default function Viewer({ model, comparison }: Props) {
               onClick={() => setWireframe(!wireframe)}
             >
               <Layers size={17} />
-              Mesh
+              {t("Mesh")}
             </button>
             {comparison && (
               <button
                 aria-pressed={compare}
                 onClick={() => setCompare(!compare)}
               >
-                {compare ? "Hide baseline" : "Compare baseline"}
+                {t(compare ? "Hide baseline" : "Compare baseline")}
               </button>
             )}
           </div>
           <span className="viewer-hint">
-            {landmarks
-              ? "Landmarks are parametric model locations · not recovered anatomy"
-              : axes
-                ? "Axes: X transverse · Y length · Z height · units mm"
-                : "Drag to orbit · scroll to zoom · right-drag to pan"}
+            {t(
+              landmarks
+                ? "Landmarks are parametric model locations · not recovered anatomy"
+                : axes
+                  ? "Axes: X transverse · Y length · Z height · units mm"
+                  : "Drag to orbit · scroll to zoom · right-drag to pan",
+            )}
           </span>
         </>
       )}

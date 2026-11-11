@@ -2,6 +2,12 @@
 @import "@fontsource/manrope/latin-500.css";
 @import "@fontsource/manrope/latin-600.css";
 @import "@fontsource/manrope/latin-700.css";
+@import "@fontsource/manrope/greek-400.css";
+@import "@fontsource/manrope/greek-500.css";
+@import "@fontsource/manrope/greek-600.css";
+@import "@fontsource/manrope/greek-700.css";
+@import "@fontsource/noto-serif/greek-400.css";
+@import "@fontsource/noto-serif/greek-400-italic.css";
 @import "@fontsource/cormorant-garamond/latin-400.css";
 @import "@fontsource/cormorant-garamond/latin-400-italic.css";
 @import "@fontsource/cormorant-garamond/latin-500.css";
@@ -4097,4 +4103,108 @@ textarea::placeholder {
   display: block;
   margin-top: 8px;
   overflow-wrap: anywhere;
+}
+
+/* Greek glyphs, longer translated labels, and an accessible language control. */
+html[lang="el"] {
+  --serif: "Noto Serif", Georgia, serif;
+}
+html[lang="el"] .eyebrow,
+html[lang="el"] .small-caps {
+  letter-spacing: 0.08em;
+}
+html[lang="el"] .hero h1 {
+  font-size: clamp(52px, 5.15vw, 82px);
+  line-height: 1.12;
+}
+html[lang="el"] h1,
+html[lang="el"] h2,
+html[lang="el"] h3 {
+  line-height: 1.18;
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
+}
+.language-switcher {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+.language-switcher button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 9px;
+  font-family: Manrope, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+.language-switcher button[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--ivory);
+}
+.language-switcher button:hover:not([aria-pressed="true"]) {
+  background: var(--porcelain);
+}
+html[lang="el"] .site-header nav {
+  gap: 20px;
+}
+html[lang="el"] .workflow-nav button,
+html[lang="el"] .capture-tabs button {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1100px) and (min-width: 761px) {
+  .site-header .header-cta {
+    display: none;
+  }
+  .site-header nav {
+    margin-left: auto;
+  }
+}
+@media (max-width: 760px) {
+  .site-header {
+    gap: 10px;
+  }
+  .site-header .header-cta {
+    display: none;
+  }
+  .language-switcher {
+    margin-left: auto;
+  }
+  .site-header .mobile-menu {
+    margin-left: 0;
+    flex: 0 0 44px;
+  }
+  html[lang="el"] .hero h1 {
+    font-size: clamp(40px, 12vw, 55px);
+  }
+  html[lang="el"] .site-header nav.open {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  html[lang="el"] .viewer-tools {
+    flex-wrap: wrap;
+    max-width: calc(100% - 16px);
+  }
+  html[lang="el"] .viewer-views button {
+    padding-inline: 8px;
+  }
+  html[lang="el"] .review-provenance dl > div,
+  html[lang="el"] .review-provenance dd {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
+@media (max-width: 370px) {
+  .site-header {
+    padding-inline: 4%;
+    gap: 8px;
+  }
+  .site-header .brand {
+    font-size: 14px;
+    gap: 7px;
+  }
 }

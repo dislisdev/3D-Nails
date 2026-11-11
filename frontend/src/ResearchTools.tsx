@@ -3,6 +3,7 @@ import type { FormEvent, KeyboardEvent, MouseEvent } from "react";
 import { AlertCircle, Check, MapPin, Plus, Trash2 } from "lucide-react";
 import { api } from "./types";
 import type { ImageRecord, Session } from "./types";
+import { t, useLanguage, formatNumber } from "./i18n";
 import "./ResearchTools.css";
 
 const browserRuntime = import.meta.env.VITE_RUNTIME === "browser";
@@ -41,7 +42,7 @@ const errorMessage = (error: unknown) =>
     ? error.message
     : "Could not save the research record.";
 const signed = (value: number) =>
-  `${value > 0 ? "+" : ""}${value.toFixed(3)} mm`;
+  `${value > 0 ? "+" : ""}${formatNumber(value, 3)} mm`;
 
 export function ExperimentPanel({
   session,
@@ -50,6 +51,7 @@ export function ExperimentPanel({
   session: Session;
   onUpdated: () => Promise<void>;
 }) {
+  useLanguage();
   const current = (session as ResearchSession).experiment ?? emptyExperiment;
   const [length, setLength] = useState(
     current.reference_length_mm?.toString() ?? "",
@@ -105,22 +107,22 @@ export function ExperimentPanel({
     <section className="experiment-panel">
       <div className="section-intro">
         <div>
-          <div className="eyebrow">INDEPENDENT EVIDENCE</div>
-          <h3>A reference, beyond the model.</h3>
+          <div className="eyebrow">{t("INDEPENDENT EVIDENCE")}</div>
+          <h3>{t("A reference, beyond the model.")}</h3>
         </div>
         <p>
-          Optional research observations. Use a separately characterized
-          non-human reference. A generated CAD model is not independent ground
-          truth.
+          {t(
+            "Optional research observations. Use a separately characterized non-human reference. A generated CAD model is not independent ground truth.",
+          )}
         </p>
       </div>
       <form onSubmit={save} onChange={() => setSaved(false)}>
         <div className="evidence-fields">
           <label>
-            Reference projected length{" "}
+            {t("Reference projected length")}{" "}
             <span className="number-input">
               <input
-                aria-label="Reference projected length"
+                aria-label={t("Reference projected length")}
                 type="number"
                 min="0.01"
                 max="100"
@@ -132,10 +134,10 @@ export function ExperimentPanel({
             </span>
           </label>
           <label>
-            Reference projected width{" "}
+            {t("Reference projected width")}{" "}
             <span className="number-input">
               <input
-                aria-label="Reference projected width"
+                aria-label={t("Reference projected width")}
                 type="number"
                 min="0.01"
                 max="100"
@@ -147,19 +149,19 @@ export function ExperimentPanel({
             </span>
           </label>
           <label>
-            Repeated-reference group
+            {t("Repeated-reference group")}
             <input
               maxLength={100}
               value={group}
               onChange={(e) => setGroup(e.target.value)}
-              placeholder="e.g. reference-A / setup-1"
+              placeholder={t("e.g. reference-A / setup-1")}
             />
           </label>
           <label>
-            Observed completion effort{" "}
+            {t("Observed completion effort")}{" "}
             <span className="number-input">
               <input
-                aria-label="Observed completion effort"
+                aria-label={t("Observed completion effort")}
                 type="number"
                 min="0"
                 max="86400"
@@ -167,55 +169,58 @@ export function ExperimentPanel({
                 value={effort}
                 onChange={(e) => setEffort(e.target.value)}
               />
-              <span>sec</span>
+              <span>{t("sec")}</span>
             </span>
           </label>
         </div>
         <label className="evidence-wide">
-          Independent reference & instrument
+          {t("Independent reference & instrument")}
           <input
             maxLength={500}
             value={source}
             onChange={(e) => setSource(e.target.value)}
-            placeholder="Reference identifier, instrument, date, operator, and uncertainty if known"
+            placeholder={t(
+              "Reference identifier, instrument, date, operator, and uncertainty if known",
+            )}
           />
         </label>
         <label className="evidence-wide">
-          Experiment notes
+          {t("Experiment notes")}
           <textarea
             rows={3}
             maxLength={2000}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Capture conditions, repeated protocol, deviations, or rejected trials"
+            placeholder={t(
+              "Capture conditions, repeated protocol, deviations, or rejected trials",
+            )}
           />
         </label>
         <p className="fine-print">
-          References are operator-reported, not independently verified by the
-          app. Compare the same projected quantity. Only group captures of the
-          same object, method, and setup. Effort is entered by the observer, not
-          inferred.
+          {t(
+            "References are operator-reported, not independently verified by the app. Compare the same projected quantity. Only group captures of the same object, method, and setup. Effort is entered by the observer, not inferred.",
+          )}
         </p>
         {error && (
           <div className="error-notice" role="alert">
             <AlertCircle size={17} />
-            {error}
+            {t(error)}
           </div>
         )}
         <button className="button secondary" disabled={busy} type="submit">
           {busy ? (
-            "Saving…"
+            t("Saving…")
           ) : saved ? (
             <>
               <Check size={16} />
-              Evidence saved
+              {t("Evidence saved")}
             </>
           ) : (
-            "Save reference observations"
+            t("Save reference observations")
           )}
         </button>
         <div aria-live="polite" className="fine-print">
-          {saved ? "Reference observations are saved in this session." : ""}
+          {saved ? t("Reference observations are saved in this session.") : ""}
         </div>
       </form>
     </section>
@@ -231,6 +236,7 @@ export function PhotoAnnotations({
   image: ImageRecord;
   onUpdated: () => Promise<void>;
 }) {
+  useLanguage();
   const annotations = (session as ResearchSession).annotations ?? [];
   const visible = annotations.filter((note) => note.image_id === image.id);
   const [position, setPosition] = useState<{ x: number; y: number } | null>(
@@ -302,7 +308,9 @@ export function PhotoAnnotations({
         viewBox={`0 0 ${image.width} ${image.height}`}
         role="button"
         tabIndex={0}
-        aria-label="Annotate this research photograph. Click a location or press Enter to add a note."
+        aria-label={t(
+          "Annotate this research photograph. Click a location or press Enter to add a note.",
+        )}
         onClick={click}
         onKeyDown={keyboard}
       >
@@ -324,7 +332,7 @@ export function PhotoAnnotations({
               fill="#fff"
               fontSize={radius * 1.1}
             >
-              {index + 1}
+              {formatNumber(index + 1, 0)}
             </text>
           </g>
         ))}
@@ -342,17 +350,17 @@ export function PhotoAnnotations({
       <div className="annotation-controls">
         <span>
           <MapPin size={14} />
-          Photo observations
+          {t("Photo observations")}
         </span>
         <button className="text-button" onClick={() => place()}>
           <Plus size={14} />
-          Add note
+          {t("Add note")}
         </button>
       </div>
       {position && (
         <form onSubmit={submit} className="annotation-form">
           <label>
-            Observation at this point
+            {t("Observation at this point")}
             <textarea
               ref={input}
               rows={2}
@@ -365,7 +373,7 @@ export function PhotoAnnotations({
           <div className="annotation-position">
             {(["x", "y"] as const).map((axis) => (
               <label key={axis}>
-                {axis.toUpperCase()} position (%)
+                {t("{axis} position (%)", { axis: axis.toUpperCase() })}
                 <input
                   type="number"
                   min="0"
@@ -391,21 +399,21 @@ export function PhotoAnnotations({
               type="submit"
               disabled={busy}
             >
-              {busy ? "Saving…" : "Save photo note"}
+              {busy ? t("Saving…") : t("Save photo note")}
             </button>
             <button
               type="button"
               className="text-button"
               onClick={() => setPosition(null)}
             >
-              Cancel
+              {t("Cancel")}
             </button>
           </div>
         </form>
       )}
       {error && (
         <div role="alert" className="error-notice">
-          {error}
+          {t(error)}
         </div>
       )}
       {visible.length > 0 && (
@@ -413,12 +421,14 @@ export function PhotoAnnotations({
           {visible.map((item, index) => (
             <li key={item.id}>
               <span>
-                {index + 1}. {item.note}
+                {formatNumber(index + 1, 0)}. {item.note}
               </span>
               <button
                 className="icon-button"
                 disabled={busy}
-                aria-label={`Delete photo note ${index + 1}`}
+                aria-label={t("Delete photo note {n}", {
+                  n: formatNumber(index + 1, 0),
+                })}
                 onClick={() =>
                   void persist(
                     annotations.filter((note) => note.id !== item.id),
@@ -436,6 +446,7 @@ export function PhotoAnnotations({
 }
 
 export function ResearchEvidence({ sessions }: { sessions: Session[] }) {
+  useLanguage();
   const studies = sessions as ResearchSession[];
   const comparisons = studies.filter(
     (s) =>
@@ -471,67 +482,85 @@ export function ResearchEvidence({ sessions }: { sessions: Session[] }) {
       values.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
         (values.length - 1),
     );
-    return `SD ${sd.toFixed(3)} / range ${(Math.max(...values) - Math.min(...values)).toFixed(3)} mm`;
+    return t("SD {sd} / range {range} mm", {
+      sd: formatNumber(sd, 3),
+      range: formatNumber(Math.max(...values) - Math.min(...values), 3),
+    });
   };
   return (
     <section className="research-evidence">
       <div className="section-intro">
         <div>
-          <div className="eyebrow">OBSERVATIONS, NOT ASSUMPTIONS</div>
-          <h3>Evidence across iterations.</h3>
+          <div className="eyebrow">{t("OBSERVATIONS, NOT ASSUMPTIONS")}</div>
+          <h3>{t("Evidence across iterations.")}</h3>
         </div>
         <p>
-          Operator-entered references and repeated-session groups. No physical
-          accuracy has been established by these descriptive comparisons.
+          {t(
+            "Operator-entered references and repeated-session groups. No physical accuracy has been established by these descriptive comparisons.",
+          )}
         </p>
       </div>
       <div className="evidence-counters">
         <span>
           <strong>
-            {attempts.filter((a) => a.outcome === "accepted").length}
+            {formatNumber(
+              attempts.filter((a) => a.outcome === "accepted").length,
+              0,
+            )}
           </strong>{" "}
-          decoded uploads
+          {t("decoded uploads")}
         </span>
         <span>
           <strong>
-            {attempts.filter((a) => a.outcome === "rejected").length}
+            {formatNumber(
+              attempts.filter((a) => a.outcome === "rejected").length,
+              0,
+            )}
           </strong>{" "}
-          rejected uploads
+          {t("rejected uploads")}
         </span>
         <span>
-          <strong>{failures}</strong> CAD generation failures
+          <strong>{formatNumber(failures, 0)}</strong>{" "}
+          {t("CAD generation failures")}
         </span>
         <span>
           <strong>
             {efforts.length
-              ? (efforts.reduce((a, b) => a + b, 0) / efforts.length).toFixed(
-                  0,
-                ) + " s"
+              ? t("{seconds} s", {
+                  seconds: formatNumber(
+                    efforts.reduce((a, b) => a + b, 0) / efforts.length,
+                    0,
+                  ),
+                })
               : "—"}
           </strong>{" "}
-          mean reported effort (n={efforts.length})
+          {t("mean reported effort (n={n})", {
+            n: formatNumber(efforts.length, 0),
+          })}
         </span>
       </div>
       <p className="fine-print">
-        Decoded uploads are not approved captures. Rejected uploads and CAD
-        failures count {browserRuntime ? "browser-recorded" : "server-recorded"}{" "}
-        attempts; camera-permission failures are not included.
+        {t(
+          browserRuntime
+            ? "Decoded uploads are not approved captures. Rejected uploads and CAD failures count browser-recorded attempts; camera-permission failures are not included."
+            : "Decoded uploads are not approved captures. Rejected uploads and CAD failures count server-recorded attempts; camera-permission failures are not included.",
+        )}
       </p>
-      <h4>System projection versus independent reference</h4>
+      <h4>{t("System projection versus independent reference")}</h4>
       {comparisons.length ? (
         <div
           className="evidence-table-scroll"
           role="region"
-          aria-label="Independent reference comparisons"
+          aria-label={t("Independent reference comparisons")}
           tabIndex={0}
         >
           <table>
             <thead>
               <tr>
-                <th>Study</th>
-                <th>Length / reference / error</th>
-                <th>Width / reference / error</th>
-                <th>Reported reference</th>
+                <th>{t("Study")}</th>
+                <th>{t("Length / reference / error")}</th>
+                <th>{t("Width / reference / error")}</th>
+                <th>{t("Reported reference")}</th>
               </tr>
             </thead>
             <tbody>
@@ -548,12 +577,14 @@ export function ResearchEvidence({ sessions }: { sessions: Session[] }) {
                     return (
                       <td key={field}>
                         {reference == null
-                          ? "Unavailable"
-                          : `${s.measurement![field].toFixed(3)} / ${reference.toFixed(3)} / ${signed(s.measurement![field] - reference)}`}
+                          ? t("Unavailable")
+                          : `${formatNumber(s.measurement![field], 3)} / ${formatNumber(reference, 3)} / ${signed(s.measurement![field] - reference)}`}
                       </td>
                     );
                   })}
-                  <td>{s.experiment!.reference_source || "Not specified"}</td>
+                  <td>
+                    {s.experiment!.reference_source || t("Not specified")}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -561,32 +592,33 @@ export function ResearchEvidence({ sessions }: { sessions: Session[] }) {
         </div>
       ) : (
         <p className="evidence-empty">
-          No independent references recorded. Add observations in a session’s
-          Professional review.
+          {t(
+            "No independent references recorded. Add observations in a session’s Professional review.",
+          )}
         </p>
       )}
-      <h4>Repeated-reference spread</h4>
+      <h4>{t("Repeated-reference spread")}</h4>
       {repeats.length ? (
         <div
           className="evidence-table-scroll"
           role="region"
-          aria-label="Repeated reference spread"
+          aria-label={t("Repeated reference spread")}
           tabIndex={0}
         >
           <table>
             <thead>
               <tr>
-                <th>Operator-defined group</th>
+                <th>{t("Operator-defined group")}</th>
                 <th>n</th>
-                <th>Length spread</th>
-                <th>Width spread</th>
+                <th>{t("Length spread")}</th>
+                <th>{t("Width spread")}</th>
               </tr>
             </thead>
             <tbody>
               {repeats.map(([name, items]) => (
                 <tr key={name}>
                   <th>{name}</th>
-                  <td>{items.length}</td>
+                  <td>{formatNumber(items.length, 0)}</td>
                   <td>{spread(items, "length_mm")}</td>
                   <td>{spread(items, "width_mm")}</td>
                 </tr>
@@ -596,14 +628,15 @@ export function ResearchEvidence({ sessions }: { sessions: Session[] }) {
         </div>
       ) : (
         <p className="evidence-empty">
-          At least two measured sessions with the same reference-group label are
-          needed. No repeatability statistics are simulated.
+          {t(
+            "At least two measured sessions with the same reference-group label are needed. No repeatability statistics are simulated.",
+          )}
         </p>
       )}
       <p className="fine-print">
-        SD is sample standard deviation. These summaries do not separate
-        operator, pose, calibration, and lighting effects or establish an
-        acceptable fit tolerance.
+        {t(
+          "SD is sample standard deviation. These summaries do not separate operator, pose, calibration, and lighting effects or establish an acceptable fit tolerance.",
+        )}
       </p>
     </section>
   );
