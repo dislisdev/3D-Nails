@@ -38,6 +38,7 @@ export const BROWSER_GEOMETRY_LIMITATIONS = [
   "Mesh edge topology, winding, finite coordinates, triangle area and signed volume are checked. No CAD kernel or independent global self-intersection check runs in the browser.",
   "STEP contains planar triangular faces in a faceted BRep, not editable smooth parametric surfaces. Runtime STEP re-import is not performed in this browser.",
   "No fastening allowance, printer compensation, material suitability or physical fit has been validated. Non-wearable laboratory prototype only.",
+  "Tip shape changes only the requested free-edge extension. With zero extension the shape selection has no geometric effect.",
 ];
 
 function sub(a: number[], b: number[]): Vec3 {
@@ -95,30 +96,59 @@ export function validateBrowserParameters(
   return { ...parameters };
 }
 
+function bodyWidth(t: number, width: number): [number, number] {
+  if (t <= 0.45)
+    return [
+      width * (0.72 + 0.28 * Math.sin((Math.PI * t) / 0.9)),
+      ((width * 0.28 * Math.PI) / 0.9) * Math.cos((Math.PI * t) / 0.9),
+    ];
+  const s = (t - 0.45) / 0.55;
+  return [
+    width * (1 - 0.12 * (3 * s ** 2 - 2 * s ** 3)),
+    (-width * 0.12 * 6 * s * (1 - s)) / 0.55,
+  ];
+}
+function tipCap(u: number, shape: GeometryParameters["tip_shape"]): number {
+  if (shape === "oval") return Math.sqrt(Math.max(0.01, 1 - 0.95 * u ** 2));
+  if (shape === "almond") return 1 - 0.9 * u ** 2;
+  return 1 - 0.12 * u ** 4;
+}
+
+function extensionReach(s: number, cap: number): [number, number] {
+  const blend = cap;
+  const speed = (cap - blend / 3) / (1 - blend / 3);
+  if (s <= blend)
+    return [
+      speed * s +
+        (1 - speed) * (s - s ** 2 / blend + s ** 3 / (3 * blend ** 2)),
+      speed + (1 - speed) * (1 - s / blend) ** 2,
+    ];
+  return [speed * s + ((1 - speed) * blend) / 3, speed];
+}
+
+/** Natural body is independent of selected tip; only its distal extension is trimmed. */
 export function browserSurfacePoint(
   u: number,
   v: number,
   p: GeometryParameters,
 ): Vec3 {
-  const length = p.length_mm + p.extension_mm;
-  const width = p.width_mm;
-  const tail = { oval: 0.62, squoval: 0.9, almond: 0.22 }[p.tip_shape];
-  let sectionWidth: number;
-  if (v <= 0.45) {
-    sectionWidth = width * (0.72 + 0.28 * Math.sin((Math.PI * v) / 0.9));
-  } else {
-    const taper = (v - 0.45) / 0.55;
-    const easing = 3 * taper ** 2 - 2 * taper ** 3;
-    sectionWidth = width * (1 - (1 - tail) * easing);
-  }
-  const cuticleBow = Math.min(0.07 * length, 0.1 * width);
-  let distalBow = Math.min(0.06 * length, 0.12 * width * tail);
-  if (p.tip_shape === "squoval") distalBow *= 0.25;
+  const physicalY = (p.length_mm + p.extension_mm) * v;
+  const t = Math.min(1, physicalY / p.length_mm);
+  const [sectionWidth] = bodyWidth(t, p.width_mm);
+  const sin2 = Math.sin(Math.PI * t) ** 2;
+  const cuticleBow = Math.min(0.07 * p.length_mm, 0.1 * p.width_mm);
+  const y =
+    p.extension_mm > 0 && v > p.length_mm / (p.length_mm + p.extension_mm)
+      ? p.length_mm +
+        p.extension_mm *
+          extensionReach(
+            (physicalY - p.length_mm) / p.extension_mm,
+            tipCap(u, p.tip_shape),
+          )[0]
+      : physicalY + cuticleBow * (1 - t) ** 3 * u ** 2;
   return [
-    (u * sectionWidth) / 2 + p.asymmetry_mm * Math.sin(Math.PI * v),
-    length * v +
-      cuticleBow * (1 - v) ** 3 * u ** 2 -
-      distalBow * v ** 3 * u ** 2,
+    (u * sectionWidth) / 2 + p.asymmetry_mm * sin2,
+    y,
     p.transverse_rise_mm *
       (1 - u ** 2) *
       (0.85 + 0.15 * Math.sin(Math.PI * v)) +
@@ -127,15 +157,48 @@ export function browserSurfacePoint(
 }
 
 function surfaceNormal(u: number, v: number, p: GeometryParameters): Vec3 {
-  const delta = 1e-5;
-  const du = sub(
-    browserSurfacePoint(u + delta, v, p),
-    browserSurfacePoint(u - delta, v, p),
-  );
-  const dv = sub(
-    browserSurfacePoint(u, v + delta, p),
-    browserSurfacePoint(u, v - delta, p),
-  );
+  const total = p.length_mm + p.extension_mm;
+  const physicalY = total * v;
+  const bow = Math.sin(Math.PI * v);
+  const zDerivative =
+    ((0.15 * p.transverse_rise_mm * (1 - u ** 2) + p.longitudinal_rise_mm) *
+      Math.PI *
+      Math.cos(Math.PI * v)) /
+    total;
+  if (p.extension_mm > 0 && v > p.length_mm / total) {
+    const s = (physicalY - p.length_mm) / p.extension_mm;
+    const delta = 1e-5;
+    const yU =
+      (p.extension_mm *
+        (extensionReach(s, tipCap(u + delta, p.tip_shape))[0] -
+          extensionReach(s, tipCap(u - delta, p.tip_shape))[0])) /
+      (2 * delta);
+    const yDerivative = extensionReach(s, tipCap(u, p.tip_shape))[1];
+    return unit(
+      cross(
+        [
+          0.44 * p.width_mm,
+          yU,
+          -2 * u * p.transverse_rise_mm * (0.85 + 0.15 * bow),
+        ],
+        [0, yDerivative, zDerivative],
+      ),
+    );
+  }
+  const t = Math.min(1, physicalY / p.length_mm);
+  const [sectionWidth, widthDerivative] = bodyWidth(t, p.width_mm);
+  const cuticleBow = Math.min(0.07 * p.length_mm, 0.1 * p.width_mm);
+  const derivative = Math.PI * Math.sin(2 * Math.PI * t);
+  const du = [
+    sectionWidth / 2,
+    2 * cuticleBow * (1 - t) ** 3 * u,
+    -2 * u * p.transverse_rise_mm * (0.85 + 0.15 * bow),
+  ];
+  const dv = [
+    ((u * widthDerivative) / 2 + p.asymmetry_mm * derivative) / p.length_mm,
+    1 - ((3 * cuticleBow) / p.length_mm) * (1 - t) ** 2 * u ** 2,
+    zDerivative,
+  ];
   const normal = cross(du, dv);
   if (normal[2] <= 0)
     throw new Error(
@@ -339,7 +402,13 @@ export function generateBrowserGeometry(
   for (let i = 0; i < across; i++) {
     const u = -1 + (2 * i) / (across - 1);
     for (let j = 0; j < along; j++) {
-      const v = j / (along - 1);
+      const boundary = p.length_mm / (p.length_mm + p.extension_mm);
+      const v =
+        p.extension_mm > 0
+          ? j <= 32
+            ? (boundary * j) / 32
+            : boundary + ((1 - boundary) * (j - 32)) / 8
+          : j / (along - 1);
       const point = browserSurfacePoint(u, v, p);
       const normal = surfaceNormal(u, v, p);
       vertices.push(point.map(Math.fround));
@@ -414,7 +483,8 @@ export function generateBrowserGeometry(
   }
   const metadata: Record<string, unknown> = {
     units: "mm",
-    engine: "NAILFORM browser faceted mesh V1",
+    engine: "NAILFORM browser faceted mesh V2",
+    engine_version: "2.0-free-edge",
     geometry_kind: "faceted_parametric_shell",
     export_representation: "faceted_brep",
     wearable: false,
@@ -431,11 +501,27 @@ export function generateBrowserGeometry(
     thickness_definition:
       "Outer vertices displaced along sampled inner-surface normals; faceted interpolation between samples.",
     fastening_allowance_mm: 0,
+    natural_length_mm: p.length_mm,
+    tip_shape_applies_to: "free_edge_extension",
+    tip_shape_active: p.extension_mm > 0,
     landmarks_mm: {
       cuticle: browserSurfacePoint(0, 0, p),
-      distal: browserSurfacePoint(0, 1, p),
-      left_sidewall: browserSurfacePoint(-1, 0.45, p),
-      right_sidewall: browserSurfacePoint(1, 0.45, p),
+      distal: browserSurfacePoint(
+        0,
+        p.length_mm / (p.length_mm + p.extension_mm),
+        p,
+      ),
+      design_tip: browserSurfacePoint(0, 1, p),
+      left_sidewall: browserSurfacePoint(
+        -1,
+        (0.45 * p.length_mm) / (p.length_mm + p.extension_mm),
+        p,
+      ),
+      right_sidewall: browserSurfacePoint(
+        1,
+        (0.45 * p.length_mm) / (p.length_mm + p.extension_mm),
+        p,
+      ),
     },
   };
   const validation: Record<string, unknown> = {

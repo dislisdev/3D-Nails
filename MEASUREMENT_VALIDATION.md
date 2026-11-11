@@ -2,7 +2,7 @@
 
 ## What the baseline measures
 
-The input is a top-view photograph, twelve human-positioned contour points, and two endpoints spanning an independently known reference dimension. All coordinates use the original, EXIF-normalized image pixels. Point 0 is the cuticle midpoint, 6 is the distal midpoint, 3 and 9 are lateral landmarks.
+The input is a top-view photograph, twelve human-reviewed contour points, and two endpoints spanning an independently known reference dimension. Points may start as a manual template or an experimental image-derived proposal; both require explicit operator review. All coordinates use the original, EXIF-normalized image pixels. Point 0 is the cuticle midpoint, 6 is the natural distal midpoint, 3 and 9 are lateral landmarks. A separate design tip is never used as the measured distal landmark.
 
 `mm_per_pixel = known_reference_mm / distance_between_reference_endpoints_px`
 
@@ -18,11 +18,15 @@ This assumes a planar reference coplanar with the subject and a sufficiently sui
 
 `backend/tests/test_api.py` exercises consent, private browser workspaces, real upload/measurement/generation/download, provenance persistence, annotation/reference records, review prerequisites, and deletion of dependent historical exports. SQLite reload checks distinguish persisted data from component state.
 
+Automatic proposals retain their original image-pixel coordinates and declared tip direction. Measurement records distinguish unaltered human-reviewed proposals from manually corrected proposals and include the original snapshot. The live detector analyses the frozen capture frame again instead of saving coordinates from an earlier video frame. Synthetic optical fixtures and local video tests verify these software contracts; they do not establish biological boundary accuracy or performance on the user's phone.
+
 ## CAD checks
 
 `backend/tests/test_geometry.py` exercises actual solids with multiple tip shapes, asymmetry, extension, flat geometry and supported parameter extremes. It compares exported STL and STEP round trips, changed parameter outputs, positive volume, watertightness, consistent winding, mesh-versus-BRep volume, expected dimensions, degenerate triangles, and sampled surface separation.
 
 The outer surface is a B-spline approximation fitted to inner-surface samples displaced along their local normals. Thickness is independent of the transverse and longitudinal rise. Separation checks use 35 interior points. They do **not** prove global minimum thickness or absence of all self-intersections. Reports contain explicit false flags for the independent global checks that are not implemented.
+
+The V2 tip profile applies only beyond the natural distal boundary. Tests compare natural-body surface samples across all three shapes, and compare browser body vertices and zero-extension meshes exactly. Shape changes alter the added design extension without reinterpreting natural projected dimensions. This preserves a parametric body; it does not imply reconstruction of the complete photographed contact surface.
 
 ## Physical validation still needed
 

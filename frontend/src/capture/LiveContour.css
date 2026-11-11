@@ -1,0 +1,312 @@
+.capture-mode-panel {
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  background: #f5f0eb;
+  padding: 16px 18px;
+}
+.capture-mode-picker {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.capture-mode-picker legend {
+  font-size: 12px;
+  line-height: 1.7;
+  font-weight: 600;
+  margin-bottom: 9px;
+}
+.capture-mode-options {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.capture-mode-options button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 13px;
+  border: 1px solid #c7b7ae;
+  background: #faf8f5;
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: left;
+  flex: 1 1 140px;
+}
+.capture-mode-options button[aria-pressed="true"] {
+  background: #e4d8d2;
+  border-color: #97707b;
+  color: #593b47;
+}
+.capture-mode-options button .badge {
+  font-size: 10px;
+  line-height: 1.5;
+}
+.capture-mode-description {
+  font-size: 12px;
+  line-height: 1.8;
+  margin-top: 11px;
+  color: #6b5a5e;
+  max-width: 680px;
+}
+.tip-direction-picker {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.tip-direction-picker > span {
+  font-size: 12px;
+  line-height: 1.7;
+  margin-right: auto;
+}
+.tip-direction-picker > div {
+  display: flex;
+  gap: 5px;
+}
+.tip-direction-picker button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #c7b7ae;
+  background: #faf8f5;
+  min-height: 44px;
+  padding: 9px 11px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.tip-direction-picker button[aria-pressed="true"] {
+  background: #e4d8d2;
+  border-color: #97707b;
+  color: #593b47;
+}
+.live-contour-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.live-contour-overlay > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.live-contour-boundary {
+  fill: #a35e7a20;
+  stroke: #ffd5e1;
+  stroke-width: 2.5px;
+  stroke-linejoin: round;
+  paint-order: stroke;
+}
+.live-contour-point {
+  fill: #fff7f1;
+  stroke: #49323e;
+  stroke-width: 1px;
+}
+.live-contour-landmark {
+  fill: #f3c7a2;
+  stroke: #49323e;
+  stroke-width: 1px;
+}
+.live-contour-overlay.steady .live-contour-boundary {
+  stroke: #dcebd2;
+  fill: #b4cba21a;
+}
+.live-analysis-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: #eee6df;
+  border: 1px solid var(--line);
+  border-top: 0;
+  padding: 13px 16px;
+  color: #73515d;
+}
+.live-analysis-status > svg {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.live-analysis-status strong {
+  display: block;
+  font-size: 12px;
+  line-height: 1.7;
+  font-weight: 600;
+}
+.live-analysis-status p {
+  font-size: 12px !important;
+  line-height: 1.8;
+  margin-top: 3px;
+  color: #6d5b60;
+}
+.live-analysis-status.steady {
+  background: #e9ede3;
+  color: #4f6747;
+}
+.live-analysis-status.steady p {
+  color: #5c6956;
+}
+.capture-actions .plain-capture-fallback {
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 240px;
+  min-height: 44px;
+}
+.capture-exact-frame-note,
+.automatic-proposal-note,
+.contour-origin-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: #76545f;
+  background: #f0e8e2;
+  padding: 12px 14px;
+  margin: 9px 0 12px;
+  border: 1px solid var(--line);
+}
+.capture-exact-frame-note > svg,
+.automatic-proposal-note > svg,
+.contour-origin-note > svg {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.capture-exact-frame-note > div {
+  min-width: 0;
+}
+.capture-exact-frame-note p {
+  font-size: 12px !important;
+  line-height: 1.8;
+}
+.capture-exact-frame-note .text-button {
+  font-size: 12px;
+  min-height: 44px;
+  margin-top: 5px;
+}
+.contour-origin-note {
+  margin: 14px 0 0;
+}
+.automatic-proposal-note {
+  background: #e9ede3;
+  color: #526849;
+}
+@media (max-width: 760px) {
+  .capture-mode-panel {
+    padding: 15px;
+  }
+  .capture-mode-picker legend,
+  .capture-mode-options button,
+  .capture-mode-description,
+  .tip-direction-picker > span,
+  .tip-direction-picker button,
+  .live-analysis-status strong,
+  .live-analysis-status p,
+  .capture-exact-frame-note,
+  .capture-exact-frame-note p,
+  .automatic-proposal-note,
+  .contour-origin-note {
+    font-size: 13px !important;
+    line-height: 1.8;
+  }
+  .capture-mode-options button {
+    padding: 10px 11px;
+    flex-basis: 130px;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+  .tip-direction-picker {
+    gap: 9px;
+  }
+  .tip-direction-picker > div {
+    width: 100%;
+  }
+  .tip-direction-picker button {
+    flex: 1;
+    justify-content: center;
+  }
+  .live-analysis-status {
+    padding: 13px 14px;
+  }
+  .capture-actions .plain-capture-fallback {
+    font-size: 13px;
+    max-width: 100%;
+    min-height: 44px;
+  }
+  .capture-exact-frame-note .text-button {
+    font-size: 13px;
+  }
+  .capture-stage.live .live-badge {
+    font-size: 9px;
+    max-width: calc(100% - 30px);
+    flex-wrap: wrap;
+  }
+  .contour-origin-note span {
+    overflow-wrap: anywhere;
+  }
+}
+
+.automatic-capture-empty-visual {
+  display: grid;
+  place-items: center;
+  min-width: 90px;
+  color: #9b7180;
+}
+.live-framing-target {
+  fill: none;
+  stroke: #fff6e9;
+  stroke-width: 2px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.8;
+  filter: drop-shadow(0 1px 1px #1d1729a0);
+}
+.live-framing-crosshair {
+  fill: none;
+  stroke: #fff6e9;
+  stroke-width: 1.4px;
+  stroke-linecap: round;
+  opacity: 0.65;
+  filter: drop-shadow(0 1px 1px #1d1729a0);
+}
+.live-framing-arrow {
+  fill: none;
+  stroke: #ffe6ad;
+  stroke-width: 3.5px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: #ffe6ad;
+  filter: drop-shadow(0 1px 2px #17141cc0);
+}
+.live-analysis-status .live-framing-instruction {
+  font-size: 16px !important;
+  line-height: 1.65;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  max-width: 650px;
+}
+.live-analysis-status .live-framing-detail {
+  margin-top: 6px !important;
+  font-size: 12px !important;
+}
+.live-analysis-status .live-framing-limit {
+  margin-top: 7px !important;
+  font-size: 11px !important;
+  color: #78656a;
+}
+@media (max-width: 760px) {
+  .live-analysis-status .live-framing-instruction {
+    font-size: 17px !important;
+    line-height: 1.7;
+  }
+  .live-analysis-status .live-framing-detail,
+  .live-analysis-status .live-framing-limit {
+    font-size: 12px !important;
+  }
+  .live-analysis-status > svg {
+    margin-top: 5px;
+  }
+}

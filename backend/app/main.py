@@ -1,10 +1,12 @@
 """Local, browser-owned research API; intentionally no public production service."""
 
 import hashlib
+from copy import deepcopy
 import importlib.util
 import io
 import json
 import logging
+from math import hypot
 import os
 import re
 import secrets
@@ -17,11 +19,12 @@ from uuid import uuid4
 
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .measurement import image_quality, measure_polygon
-from .schemas import GenerationRequest, MeasurementRequest, SessionCreate, SessionPatch
+from .schemas import ContourProposalRequest, GenerationRequest, MeasurementRequest, SessionCreate, SessionPatch
 from .storage import Store
 
 LOGGER = logging.getLogger(__name__)
@@ -40,10 +43,50 @@ def version(session: dict, kind: str, summary: str, **extra):
     session["updated_at"] = now()
 
 
+def validate_proposal_points(points: list[dict], width: int, height: int):
+    """Validate image-space topology only; this does not validate nail detection."""
+    from .measurement import _segments_intersect
+
+    if any(point["x"] >= width or point["y"] >= height for point in points):
+        raise ValueError("Automatic contour proposal points must be finite and inside the original image.")
+    coordinates = [(point["x"], point["y"]) for point in points]
+    if len(set(coordinates)) != 12:
+        raise ValueError("Automatic contour proposal points must be distinct.")
+    area2 = sum(coordinates[i][0] * coordinates[(i + 1) % 12][1] - coordinates[(i + 1) % 12][0] * coordinates[i][1] for i in range(12))
+    if abs(area2) < 8:
+        raise ValueError("The automatic contour proposal has no usable area.")
+    for i in range(12):
+        for j in range(i + 1, 12):
+            if j == i + 1 or (i == 0 and j == 11):
+                continue
+            if _segments_intersect(coordinates[i], coordinates[(i + 1) % 12], coordinates[j], coordinates[(j + 1) % 12]):
+                raise ValueError("Automatic contour proposal edges cross or touch. Retake the photograph or use manual mode.")
+    proximal, distal = coordinates[0], coordinates[6]
+    length = hypot(distal[0] - proximal[0], distal[1] - proximal[1])
+    if length < 5:
+        raise ValueError("Automatic contour proposal landmarks do not define a usable cuticle-to-distal axis.")
+    along = ((distal[0] - proximal[0]) / length, (distal[1] - proximal[1]) / length)
+    local = [((x - proximal[0]) * along[1] - (y - proximal[1]) * along[0],
+              (x - proximal[0]) * along[0] + (y - proximal[1]) * along[1]) for x, y in coordinates]
+    if local[3][0] <= 1 or local[9][0] >= -1:
+        raise ValueError("Automatic contour proposal sidewall landmarks are inconsistent. Use manual mode or retake the photograph.")
+    if min(y for _, y in local) < -length * .1 or max(y for _, y in local) > length * 1.1:
+        raise ValueError("Automatic contour proposal cuticle and distal landmarks do not span the outline.")
+
+
 def create_app(data_dir: Path | None = None) -> FastAPI:
     app = FastAPI(title="NAILFORM LAB Research API", version="0.1.0")
     store = Store(data_dir or Path(os.environ.get("NAILFORM_DATA_DIR", Path(__file__).resolve().parents[2] / ".data")))
     app.state.store = store
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(_request: Request, error: RequestValidationError):
+        # Do not echo arbitrary research input. In particular, NaN/Infinity in
+        # malformed JSON cannot be serialized by Starlette's default handler.
+        return JSONResponse(status_code=422, content={"detail": [
+            {"loc": entry["loc"], "msg": entry["msg"], "type": entry["type"]}
+            for entry in error.errors()
+        ]})
 
     @app.middleware("http")
     async def workspace_owner(request: Request, call_next):
@@ -64,6 +107,10 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         value = store.get(request.state.owner, session_id)
         if value is None:
             raise HTTPException(404, "Research session not found in this browser workspace.")
+        value.setdefault("contour_proposals", [])
+        previous_parameters = (value.get("latest_model") or {}).get("parameters", {})
+        value.setdefault("design", {"tip_shape": previous_parameters.get("tip_shape", "oval"),
+                                     "extension_mm": previous_parameters.get("extension_mm", 2)})
         return value
 
     def session_dir(session_id: str):
@@ -100,7 +147,8 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
                    "contour": None, "calibration": None, "measurement": None, "latest_model": None,
                    "feedback": {"notes": "", "issues": [], "contour_accepted": False, "geometry_accepted": False},
                    "versions": [], "model_ids": [], "capture_attempts": [], "generation_failures": [],
-                   "annotations": [], "experiment": {"reference_length_mm": None, "reference_width_mm": None,
+                   "annotations": [], "contour_proposals": [], "design": {"tip_shape": "oval", "extension_mm": 2},
+                   "experiment": {"reference_length_mm": None, "reference_width_mm": None,
                        "reference_source": "", "repeat_group": "", "effort_seconds": None, "notes": ""}}
         version(session, "created", "Research storage consent recorded; session created.")
         store.put(request.state.owner, session)
@@ -133,6 +181,15 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
                     if not session["latest_model"] or not session["feedback"]["geometry_accepted"]:
                         raise HTTPException(422, "This state requires a current generated model and recorded geometric review.")
                 session["state"] = payload.state
+            if payload.design is not None:
+                design = payload.design.model_dump()
+                if design != session.get("design") and session["latest_model"]:
+                    # Keep the previous model available as a stale comparison;
+                    # the confirmed source photograph/calibration stay intact.
+                    session["feedback"]["geometry_accepted"] = False
+                    session["state"] = "measurement_review_needed"
+                session["design"] = design
+                version(session, "design", "External extension design preferences saved.", design=deepcopy(design))
             if payload.annotations is not None:
                 annotation_ids = [annotation.id for annotation in payload.annotations]
                 if len(annotation_ids) != len(set(annotation_ids)):
@@ -224,6 +281,29 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             raise HTTPException(404, "Stored image is unavailable.")
         return FileResponse(path, media_type="image/png")
 
+    @app.post("/api/sessions/{session_id}/contour-proposals", status_code=201)
+    def store_contour_proposal(session_id: str, payload: ContourProposalRequest, request: Request):
+        with store.lock:
+            session = require_session(request, session_id)
+            image = require_image(session, payload.image_id)
+            if image["view"] != "top":
+                raise HTTPException(422, "Only top-view photographs support an automatic contour proposal.")
+            points = [point.model_dump() for point in payload.points]
+            try:
+                validate_proposal_points(points, image["width"], image["height"])
+            except ValueError as error:
+                raise HTTPException(422, str(error)) from error
+            proposal = {"id": uuid4().hex, "image_id": payload.image_id, "points": points,
+                        "method": payload.method, "source": payload.source, "tip_direction": payload.tip_direction,
+                        "created_at": now(), "review_required": True}
+            session["contour_proposals"].append(proposal)
+            image["contour_proposal"] = deepcopy(proposal)
+            # An unconfirmed proposal does not replace approved measurements or CAD.
+            version(session, "contour_proposal", "Experimental image-derived contour proposal stored; manual review and calibration remain required.",
+                    image_id=payload.image_id, proposal=deepcopy(proposal))
+            store.put(request.state.owner, session)
+            return proposal
+
     @app.delete("/api/sessions/{session_id}/images/{image_id}", status_code=204)
     def delete_image(session_id: str, image_id: str, request: Request):
         with store.lock:
@@ -231,6 +311,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             require_image(session, image_id)
             session["images"] = [image for image in session["images"] if image["id"] != image_id]
             session["annotations"] = [annotation for annotation in session.get("annotations", []) if annotation["image_id"] != image_id]
+            session["contour_proposals"] = [proposal for proposal in session.get("contour_proposals", []) if proposal["image_id"] != image_id]
             (session_dir(session_id) / "images" / f"{image_id}.png").unlink(missing_ok=True)
             # Delete every model that depended on this image, including historical outputs.
             keep_models = []
@@ -266,6 +347,12 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             image = require_image(session, payload.image_id)
             if image["view"] != "top":
                 raise HTTPException(422, "The calibrated 2D method currently uses the top-view image only.")
+            proposal = None
+            if payload.proposal_id is not None:
+                proposal = next((entry for entry in session.get("contour_proposals", [])
+                                 if entry["id"] == payload.proposal_id and entry["image_id"] == payload.image_id), None)
+                if proposal is None:
+                    raise HTTPException(422, "Contour proposal not found for this image in this research session.")
             try:
                 result = measure_polygon(payload, image["width"], image["height"])
             except ValueError as error:
@@ -273,11 +360,21 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
             result["created_at"] = now()
             result["id"] = uuid4().hex
             result["warnings"].extend(image["quality"]["warnings"])
+            summary = "Calibrated projected 2D dimensions recorded from manually placed contour."
+            if proposal is not None:
+                unchanged = all(hypot(point["x"] - original["x"], point["y"] - original["y"]) <= .01 + 1e-9
+                                for point, original in zip(result["contour"], proposal["points"]))
+                result["contour_source"] = "automatic_human_reviewed" if unchanged else "automatic_human_adjusted"
+                result["contour_proposal_id"] = proposal["id"]
+                result["contour_proposal"] = deepcopy(proposal)
+                result["warnings"].append("Automatic contour is an experimental image-derived proposal; human review does not establish validated segmentation accuracy or physical fit.")
+                summary = ("Calibrated projected 2D dimensions recorded from a human-reviewed automatic contour proposal." if unchanged else
+                           "Calibrated projected 2D dimensions recorded from a human-adjusted automatic contour proposal.")
             session["measurement"] = result
             session["contour"] = result["contour"]
             session["calibration"] = result["calibration"]
             invalidate_review(session)
-            version(session, "measurement", "Calibrated projected 2D dimensions recorded from manually placed contour.",
+            version(session, "measurement", summary,
                     image_id=payload.image_id, measurement=result)
             store.put(request.state.owner, session)
             return result

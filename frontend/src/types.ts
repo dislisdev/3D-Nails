@@ -3,12 +3,23 @@ import { getLanguage } from "./i18n";
 export type Point = { x: number; y: number };
 export type Calibration = { a: Point; b: Point; reference_mm: number };
 export type CaptureView = "top" | "front" | "side" | "oblique";
+export type ContourProposal = {
+  id: string;
+  image_id: string;
+  points: Point[];
+  method: "contrast_outline_v1";
+  source: "live_camera" | "photo";
+  tip_direction: "up" | "down";
+  created_at: string;
+  review_required: true;
+};
 export type ImageRecord = {
   id: string;
   view: CaptureView;
   width: number;
   height: number;
   url: string;
+  contour_proposal?: ContourProposal;
   quality: {
     blur_score: number;
     mean_brightness: number;
@@ -28,6 +39,12 @@ export type Measurement = {
   contour: Point[];
   calibration: Calibration;
   image_id: string;
+  contour_source?:
+    | "manual_control_points"
+    | "automatic_human_reviewed"
+    | "automatic_human_adjusted";
+  contour_proposal_id?: string;
+  contour_proposal?: ContourProposal;
 };
 export type GeometryParameters = {
   length_mm: number;
@@ -38,6 +55,10 @@ export type GeometryParameters = {
   extension_mm: number;
   tip_shape: "oval" | "squoval" | "almond";
   asymmetry_mm: number;
+};
+export type DesignPreferences = {
+  tip_shape: GeometryParameters["tip_shape"];
+  extension_mm: number;
 };
 export type Generation = {
   id: string;
@@ -74,6 +95,8 @@ export type Session = {
     summary: string;
     model_id?: string;
   }[];
+  contour_proposals?: ContourProposal[];
+  design?: DesignPreferences;
 };
 export const states: Record<string, string> = {
   draft: "Draft",

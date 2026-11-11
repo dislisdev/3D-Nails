@@ -41,12 +41,13 @@ Camera access requires a secure browser context. Loopback works on the developme
 ## Use
 
 1. Start a session and consent to local research storage. Photograph or upload a top view with a known-size coplanar reference; collect other views for human review.
-2. Place scale endpoints A/B and enter the independently known reference length. Move all twelve manual contour points to the visible boundary. C marks the cuticle, D the distal edge; review both scale and contour.
-3. Save the measurement. Length and sectional widths are calibrated **2D projections**. Surface curvature stays unknown.
-4. Review the projected dimensions and explicitly manual curvature, nominal normal thickness, extension, asymmetry and tip shape. Generate the laboratory model after acknowledging its limitations.
-5. Orbit/zoom/pan the actual exported geometry. Inspect multiple views and download STL, STEP, parameter JSON and validation JSON. Changing inputs requires a new generation; old files remain associated with their saved version.
-6. Record professional notes, photo pins, research state and independent reference observations. Repeated sessions can share a reference-group label for descriptive spread comparisons in the Research journal.
-7. Delete photographs or sessions when no longer needed. Deleting a source photograph also removes dependent measurements and historical CAD exports.
+2. Choose manual tracing or **Automatic live** for the top view. Automatic mode follows a contrast-derived boundary and shows framing lines, movement arrows and a short instruction. Capture a steady outline, then review all twelve points; automatic detection is experimental and can select the wrong region. Uploaded top photographs can also receive a local automatic proposal.
+3. Place scale endpoints A/B and enter the independently known reference length. Correct every contour point as needed, including in Pan mode; the precise-adjustment panel also provides point selection, arrows and original-pixel coordinates. C marks the cuticle and D the natural distal edge. Review both scale and contour.
+4. Select Oval, Almond or Squoval and an added free-edge length. The calibrated dashed preview marks the added design edge and T marks its tip. Shape selection affects only the added extension; it preserves the measured natural contour and the model's natural body. With zero extension the three shapes are identical.
+5. Save the measurement. Length and sectional widths are calibrated **2D projections**. Surface curvature stays unknown. Review these dimensions and explicitly manual curvature, nominal normal thickness, extension and asymmetry before generating the laboratory model.
+6. Orbit/zoom/pan the actual exported geometry. Inspect multiple views and download STL, STEP, parameter JSON and validation JSON. Exports preserve the original automatic proposal and distinguish reviewed from manually corrected proposals. Changing inputs requires a new generation; old files remain associated with their saved version.
+7. Record professional notes, photo pins, research state and independent reference observations. Repeated sessions can share a reference-group label for descriptive spread comparisons in the Research journal.
+8. Delete photographs or sessions when no longer needed. Deleting a source photograph also removes dependent measurements and historical CAD exports.
 
 Only use non-human references for physical prototype evaluation. Geometric review does not authorize wear, adhesion testing, or skin contact.
 
@@ -71,7 +72,7 @@ See [VALIDATION_RESULTS.md](VALIDATION_RESULTS.md) for actual run outcomes, [MEA
 
 ## Project record
 
-- [ARCHITECTURE.md](ARCHITECTURE.md): decisions, module boundaries and missing V1 asset inventory.
+- [ARCHITECTURE.md](ARCHITECTURE.md): decisions, module boundaries and V1 asset compatibility.
 - [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md): implementation sequence and acceptance criteria.
 - [RESEARCH_LOG.md](RESEARCH_LOG.md): observed evidence, hypotheses and next controlled experiment.
 

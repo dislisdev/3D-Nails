@@ -36,6 +36,8 @@ GEOMETRY_LIMITATIONS = [
     "triangle self-intersection test is not implemented.",
     "No fastening allowance, printer compensation, material suitability or "
     "physical fit has been validated. Non-wearable laboratory prototype only.",
+    "Tip shape changes only the requested free-edge extension. With zero "
+    "extension the shape selection has no geometric effect.",
 ]
 
 
@@ -65,43 +67,93 @@ def validate_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def _surface_point(u: float, v: float, p: dict[str, Any]) -> np.ndarray:
-    """Inner surface, with u across the nail and v from cuticle to free edge.
-
-    The proximal and distal boundaries bow in plan view.  Section width changes
-    continuously, while both transverse and longitudinal rises describe the
-    inner surface and remain independent of shell thickness.
-    """
-    length = p["length_mm"] + p["extension_mm"]
-    width = p["width_mm"]
-    tail = {"oval": 0.62, "squoval": 0.90, "almond": 0.22}[p["tip_shape"]]
-    if v <= 0.45:
-        section_width = width * (0.72 + 0.28 * math.sin(math.pi * v / 0.90))
-    else:
-        taper = (v - 0.45) / 0.55
-        easing = 3.0 * taper**2 - 2.0 * taper**3
-        section_width = width * (1.0 - (1.0 - tail) * easing)
-
-    # These bounds preserve an injective planar mapping, including flat shells.
-    # Combining an aggressive width taper with a deep distal bow can fold the
-    # parameter domain, even when a curved surface hides that fault visually.
-    cuticle_bow = min(0.07 * length, 0.10 * width)
-    distal_bow = min(0.06 * length, 0.12 * width * tail)
-    if p["tip_shape"] == "squoval":
-        distal_bow *= 0.25
-    x = u * section_width / 2.0 + p["asymmetry_mm"] * math.sin(math.pi * v)
-    y = length * v + cuticle_bow * (1.0 - v) ** 3 * u**2 - distal_bow * v**3 * u**2
-    z = (
-        p["transverse_rise_mm"] * (1.0 - u**2) * (0.85 + 0.15 * math.sin(math.pi * v))
-        + p["longitudinal_rise_mm"] * math.sin(math.pi * v)
+def _body_width(t: float, width: float) -> tuple[float, float]:
+    """Common natural-body section width and derivative with respect to t."""
+    if t <= 0.45:
+        return (
+            width * (0.72 + 0.28 * math.sin(math.pi * t / 0.90)),
+            width * 0.28 * math.pi / 0.90 * math.cos(math.pi * t / 0.90),
+        )
+    s = (t - 0.45) / 0.55
+    return (
+        width * (1.0 - 0.12 * (3.0 * s**2 - 2.0 * s**3)),
+        -width * 0.12 * 6.0 * s * (1.0 - s) / 0.55,
     )
+
+
+def _tip_cap(u: float, shape: str) -> float:
+    """Positive distal reach at each transverse position; no pinched solid."""
+    if shape == "oval":
+        return math.sqrt(max(0.01, 1.0 - 0.95 * u**2))
+    if shape == "almond":
+        return 1.0 - 0.90 * u**2
+    return 1.0 - 0.12 * u**4
+
+
+def _extension_reach(s: float, cap: float) -> tuple[float, float]:
+    """Monotone cap mapping with unit tangent speed at the natural boundary."""
+    blend = cap
+    speed = (cap - blend / 3.0) / (1.0 - blend / 3.0)
+    if s <= blend:
+        value = speed * s + (1.0 - speed) * (s - s**2 / blend + s**3 / (3.0 * blend**2))
+        derivative = speed + (1.0 - speed) * (1.0 - s / blend)**2
+    else:
+        value = speed * s + (1.0 - speed) * blend / 3.0
+        derivative = speed
+    return value, derivative
+
+
+def _surface_point(u: float, v: float, p: dict[str, Any]) -> np.ndarray:
+    """Common natural surface plus a separately shaped distal extension.
+
+    v spans the full nominal centreline length. All samples at or before the
+    natural distal landmark are independent of tip_shape at the same other
+    parameters. The tip shape
+    changes the trimming perimeter of the extension, not the measured body.
+    """
+    length, extension, width = p["length_mm"], p["extension_mm"], p["width_mm"]
+    physical_y = (length + extension) * v
+    t = min(1.0, physical_y / length)
+    section_width, _ = _body_width(t, width)
+    sin2 = math.sin(math.pi * t)**2
+    x = u * section_width / 2.0 + p["asymmetry_mm"] * sin2
+    cuticle_bow = min(0.07 * length, 0.10 * width)
+    if extension > 0 and v > length / (length + extension):
+        reach, _ = _extension_reach((physical_y - length) / extension, _tip_cap(u, p["tip_shape"]))
+        y = length + extension * reach
+    else:
+        y = physical_y + cuticle_bow * (1.0 - t)**3 * u**2
+    bow = math.sin(math.pi * v)
+    z = p["transverse_rise_mm"] * (1.0 - u**2) * (0.85 + 0.15 * bow) + p["longitudinal_rise_mm"] * bow
     return np.array([x, y, z], dtype=float)
 
 
 def _normal(u: float, v: float, p: dict[str, Any]) -> np.ndarray:
-    delta = 1e-5
-    du = (_surface_point(u + delta, v, p) - _surface_point(u - delta, v, p)) / (2 * delta)
-    dv = (_surface_point(u, v + delta, p) - _surface_point(u, v - delta, p)) / (2 * delta)
+    length, width = p["length_mm"], p["width_mm"]
+    physical_y = (length + p["extension_mm"]) * v
+    total = length + p["extension_mm"]
+    bow = math.sin(math.pi * v)
+    z_derivative = (0.15 * p["transverse_rise_mm"] * (1.0 - u**2) + p["longitudinal_rise_mm"]) * math.pi * math.cos(math.pi * v) / total
+    if p["extension_mm"] > 0 and v > length / total:
+        s = (physical_y - length) / p["extension_mm"]
+        delta = 1e-5
+        high, _ = _extension_reach(s, _tip_cap(u + delta, p["tip_shape"]))
+        low, _ = _extension_reach(s, _tip_cap(u - delta, p["tip_shape"]))
+        y_u = p["extension_mm"] * (high - low) / (2.0 * delta)
+        _, y_derivative = _extension_reach(s, _tip_cap(u, p["tip_shape"]))
+        du = np.array([0.44 * width, y_u, -2.0 * u * p["transverse_rise_mm"] * (0.85 + 0.15 * bow)])
+        dv = np.array([0.0, y_derivative, z_derivative])
+        normal = np.cross(du, dv)
+        return normal / np.linalg.norm(normal)
+    t = min(1.0, physical_y / length)
+    section_width, width_derivative = _body_width(t, width)
+    cuticle_bow = min(0.07 * length, 0.10 * width)
+    derivative = math.pi * math.sin(2.0 * math.pi * t)
+    du = np.array([section_width / 2.0, 2.0 * cuticle_bow * (1.0 - t)**3 * u,
+                   -2.0 * u * p["transverse_rise_mm"] * (0.85 + 0.15 * bow)])
+    dv = np.array([(u * width_derivative / 2.0 + p["asymmetry_mm"] * derivative) / length,
+                   1.0 - 3.0 * cuticle_bow / length * (1.0 - t)**2 * u**2,
+                   z_derivative])
     normal = np.cross(du, dv)
     magnitude = float(np.linalg.norm(normal))
     if not math.isfinite(magnitude) or magnitude < 1e-8 or normal[2] <= 0:
@@ -112,7 +164,12 @@ def _normal(u: float, v: float, p: dict[str, Any]) -> np.ndarray:
 def _make_solid(p: dict[str, Any]) -> tuple[cq.Solid, cq.Face, cq.Face]:
     # Samples are fitted with a tolerance of 0.001 mm; the outer sample points
     # are displaced along the local surface normal, never by a fixed z amount.
-    us, vs = np.linspace(-1.0, 1.0, 19), np.linspace(0.0, 1.0, 29)
+    us = np.linspace(-1.0, 1.0, 19)
+    if p["extension_mm"] > 0:
+        boundary = p["length_mm"] / (p["length_mm"] + p["extension_mm"])
+        vs = np.concatenate([np.linspace(0.0, boundary, 21), np.linspace(boundary, 1.0, 9)[1:]])
+    else:
+        vs = np.linspace(0.0, 1.0, 29)
     inner_grid = [
         [cq.Vector(*_surface_point(u, v, p)) for v in vs] for u in us
     ]
@@ -235,7 +292,8 @@ def generate_geometry(parameters: dict[str, Any], output_dir: Path) -> dict[str,
 
         metadata = {
             "units": "mm",
-            "engine": "CadQuery / OpenCascade parametric shell V1",
+            "engine": "CadQuery / OpenCascade parametric shell V2",
+            "engine_version": "2.0-free-edge",
             "geometry_kind": "parametric_approximation",
             "wearable": False,
             "fit_validated": False,
@@ -251,11 +309,15 @@ def generate_geometry(parameters: dict[str, Any], output_dir: Path) -> dict[str,
             "tessellation_linear_tolerance_mm": 0.025,
             "tessellation_angular_tolerance_radians": 0.10,
             "fastening_allowance_mm": 0.0,
+            "natural_length_mm": p["length_mm"],
+            "tip_shape_applies_to": "free_edge_extension",
+            "tip_shape_active": p["extension_mm"] > 0,
             "landmarks_mm": {
                 "cuticle": _surface_point(0.0, 0.0, p).tolist(),
-                "distal": _surface_point(0.0, 1.0, p).tolist(),
-                "left_sidewall": _surface_point(-1.0, 0.45, p).tolist(),
-                "right_sidewall": _surface_point(1.0, 0.45, p).tolist(),
+                "distal": _surface_point(0.0, p["length_mm"] / (p["length_mm"] + p["extension_mm"]), p).tolist(),
+                "design_tip": _surface_point(0.0, 1.0, p).tolist(),
+                "left_sidewall": _surface_point(-1.0, 0.45 * p["length_mm"] / (p["length_mm"] + p["extension_mm"]), p).tolist(),
+                "right_sidewall": _surface_point(1.0, 0.45 * p["length_mm"] / (p["length_mm"] + p["extension_mm"]), p).tolist(),
             },
         }
         validation = {

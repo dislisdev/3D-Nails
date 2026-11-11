@@ -2,6 +2,10 @@ import { useSyncExternalStore } from "react";
 import { appEl } from "./locales/app.el";
 import { labEl } from "./locales/lab.el";
 import { engineEl } from "./locales/engine.el";
+import { autoEditorEl } from "./locales/autoEditor.el";
+import { autoErrorsEl } from "./locales/autoErrors.el";
+import { autoCaptureEl } from "./locales/autoCapture.el";
+import { nailShapesEl } from "./locales/nailShapes.el";
 
 export type Language = "el" | "en";
 type Values = Record<string, string | number>;
@@ -9,10 +13,15 @@ const storageKey = "nailform:language";
 const listeners = new Set<() => void>();
 const normalize = (source: string) => source.replace(/\s+/g, " ").trim();
 const dictionary: Record<string, string> = Object.fromEntries(
-  Object.entries({ ...appEl, ...labEl, ...engineEl }).map(([key, value]) => [
-    normalize(key),
-    value,
-  ]),
+  Object.entries({
+    ...appEl,
+    ...labEl,
+    ...engineEl,
+    ...autoEditorEl,
+    ...autoErrorsEl,
+    ...autoCaptureEl,
+    ...nailShapesEl,
+  }).map(([key, value]) => [normalize(key), value]),
 );
 let language: Language = "el";
 try {

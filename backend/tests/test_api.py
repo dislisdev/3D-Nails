@@ -1,4 +1,7 @@
 import io
+import copy
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -46,6 +49,203 @@ def geometry_parameters():
     return {"length_mm": 20, "width_mm": 16, "transverse_rise_mm": 1.2,
             "longitudinal_rise_mm": .4, "thickness_mm": .5, "extension_mm": 2,
             "tip_shape": "oval", "asymmetry_mm": 0}
+
+
+def proposal_request(image_id):
+    return {"image_id": image_id, "points": payload()["contour"], "method": "contrast_outline_v1",
+            "source": "photo", "tip_direction": "down"}
+
+
+def test_proposals_preserve_measurement_until_review_and_track_original_snapshots(client):
+    session, image, original_measurement = calibrated_session(client)
+    base = f"/api/sessions/{session['id']}"
+    assert client.get(base).json()["contour_proposals"] == []
+    first = client.post(base + "/contour-proposals", json=proposal_request(image["id"]))
+    assert first.status_code == 201, first.text
+    first = first.json()
+    assert first["review_required"] is True
+    assert first["method"] == "contrast_outline_v1"
+    pending = client.get(base).json()
+    assert pending["measurement"] == original_measurement
+    assert pending["images"][0]["contour_proposal"] == first
+    assert pending["contour_proposals"] == [first]
+    assert any(v["kind"] == "contour_proposal" and v["proposal"] == first for v in pending["versions"])
+    # Replacing the current proposal must preserve the first audit snapshot.
+    second_request = proposal_request(image["id"])
+    second_request["points"][1]["x"] += 2
+    second_request["source"] = "live_camera"
+    second = client.post(base + "/contour-proposals", json=second_request).json()
+    assert client.get(base).json()["images"][0]["contour_proposal"]["id"] == second["id"]
+    measure_request = payload()
+    measure_request.update(image_id=image["id"], proposal_id=first["id"])
+    reviewed = client.post(base + "/measure", json=measure_request)
+    assert reviewed.status_code == 200, reviewed.text
+    reviewed = reviewed.json()
+    assert reviewed["contour_source"] == "automatic_human_reviewed"
+    assert reviewed["contour_proposal_id"] == first["id"]
+    assert reviewed["contour_proposal"] == first
+    assert reviewed["provenance"]["transverse_rise_mm"] == "unknown"
+    assert reviewed["length_mm"] == 20
+    # Coordinates within 0.01 image pixel are treated as unchanged despite float round-off.
+    tolerance = copy.deepcopy(measure_request)
+    tolerance["contour"][10]["x"] += .01
+    assert client.post(base + "/measure", json=tolerance).json()["contour_source"] == "automatic_human_reviewed"
+    changed = copy.deepcopy(measure_request)
+    changed["contour"][1]["x"] += .02
+    adjusted = client.post(base + "/measure", json=changed).json()
+    assert adjusted["contour_source"] == "automatic_human_adjusted"
+    assert adjusted["contour_proposal"] == first
+    assert adjusted["contour"][1] != first["points"][1]
+    # Explicit manual mode never inherits automatic origin from image metadata.
+    del measure_request["proposal_id"]
+    manual = client.post(base + "/measure", json=measure_request).json()
+    assert manual["contour_source"] == "manual_control_points"
+    assert "contour_proposal_id" not in manual
+    assert "contour_proposal" not in manual
+
+
+@pytest.mark.parametrize("problem", ["outside", "negative", "crossed", "duplicate", "short", "nonfinite", "boolean", "line", "wrong_side", "method", "source", "direction"])
+def test_invalid_automatic_proposals_are_rejected_without_persisting(client, problem):
+    session, image, measured = calibrated_session(client)
+    base = f"/api/sessions/{session['id']}"
+    data = proposal_request(image["id"])
+    if problem == "outside":
+        data["points"][2]["x"] = 400
+    elif problem == "negative":
+        data["points"][2]["x"] = -1
+    elif problem == "crossed":
+        data["points"][2], data["points"][8] = data["points"][8], data["points"][2]
+    elif problem == "duplicate":
+        data["points"][1] = data["points"][2].copy()
+    elif problem == "short":
+        data["points"].pop()
+    elif problem == "nonfinite":
+        data["points"][2]["x"] = float("nan")
+    elif problem == "boolean":
+        data["points"][2]["x"] = True
+    elif problem == "line":
+        data["points"] = [{"x": 100 + i, "y": 100} for i in range(12)]
+    elif problem == "wrong_side":
+        data["points"].reverse()
+    elif problem == "method":
+        data["method"] = "invented_model"
+    elif problem == "source":
+        data["source"] = "verified_scan"
+    else:
+        data["tip_direction"] = "left"
+    response = client.post(base + "/contour-proposals", content=json.dumps(data), headers={"Content-Type": "application/json"})
+    assert response.status_code == 422, response.text
+    persisted = client.get(base).json()
+    assert persisted["contour_proposals"] == []
+    assert "contour_proposal" not in persisted["images"][0]
+    assert persisted["measurement"] == measured
+
+
+def test_proposals_enforce_workspace_and_source_image_and_support_legacy_records(client):
+    session, image, _ = calibrated_session(client)
+    base = f"/api/sessions/{session['id']}"
+    isolated = TestClient(client.app)
+    assert isolated.post(base + "/contour-proposals", json=proposal_request(image["id"])).status_code == 404
+    other, other_image, _ = calibrated_session(client)
+    assert client.post(base + "/contour-proposals", json=proposal_request(other_image["id"])).status_code == 404
+    foreign = client.post(f"/api/sessions/{other['id']}/contour-proposals", json=proposal_request(other_image["id"])).json()
+    second_other_image = client.post(f"/api/sessions/{other['id']}/images?view=top", files={"file": ("second.png", photograph(), "image/png")}).json()
+    second_other_proposal = client.post(f"/api/sessions/{other['id']}/contour-proposals", json=proposal_request(second_other_image["id"])).json()
+    wrong_image = payload()
+    wrong_image.update(image_id=other_image["id"], proposal_id=second_other_proposal["id"])
+    assert client.post(f"/api/sessions/{other['id']}/measure", json=wrong_image).status_code == 422
+    measurement = payload()
+    measurement.update(image_id=image["id"], proposal_id=foreign["id"])
+    assert client.post(base + "/measure", json=measurement).status_code == 422
+    measurement["proposal_id"] = "missing-proposal"
+    assert client.post(base + "/measure", json=measurement).status_code == 422
+    side = client.post(base + "/images?view=side", files={"file": ("side.png", photograph(), "image/png")}).json()
+    assert client.post(base + "/contour-proposals", json=proposal_request(side["id"])).status_code == 422
+    # No migration or field presence is required for older saved records.
+    owner = hashlib.sha256(client.cookies.get("nailform_workspace").encode()).hexdigest()
+    legacy = client.app.state.store.get(owner, session["id"])
+    legacy.pop("contour_proposals", None)
+    client.app.state.store.put(owner, legacy)
+    proposal = client.post(base + "/contour-proposals", json=proposal_request(image["id"]))
+    assert proposal.status_code == 201, proposal.text
+    assert client.get(base).json()["contour_proposals"][0]["id"] == proposal.json()["id"]
+    # User-specified upward orientation works without inventing anatomical classification.
+    upward = proposal_request(image["id"])
+    upward["points"] = [{"x": 399 - p["x"], "y": 399 - p["y"]} for p in upward["points"]]
+    upward["tip_direction"] = "up"
+    assert client.post(base + "/contour-proposals", json=upward).status_code == 201
+
+
+@pytest.mark.skipif(not (Path(__file__).parents[1] / "app" / "geometry.py").is_file(), reason="CAD module is not yet available")
+def test_proposal_audit_survives_model_export_and_is_removed_with_image(client):
+    session, image, _ = calibrated_session(client)
+    base = f"/api/sessions/{session['id']}"
+    original_model = client.post(base + "/generate", json={"parameters": geometry_parameters(), "review_confirmed": True}).json()
+    accepted = {"contour_accepted": True, "geometry_accepted": True, "notes": "Geometric review only", "issues": []}
+    client.patch(base, json={"feedback": accepted, "state": "geometrically_reviewed"})
+    proposal = client.post(base + "/contour-proposals", json=proposal_request(image["id"])).json()
+    unconfirmed = client.get(base).json()
+    assert unconfirmed["latest_model"]["id"] == original_model["id"]
+    assert unconfirmed["state"] == "geometrically_reviewed"
+    assert unconfirmed["feedback"]["geometry_accepted"] is True
+    data = payload()
+    data.update(image_id=image["id"], proposal_id=proposal["id"])
+    client.post(base + "/measure", json=data)
+    updated = client.get(base).json()
+    assert updated["latest_model"] is None
+    assert updated["feedback"]["geometry_accepted"] is False
+    generated = client.post(base + "/generate", json={"parameters": geometry_parameters(), "review_confirmed": True})
+    assert generated.status_code == 201, generated.text
+    exported = client.get(generated.json()["downloads"]["parameters"]).json()
+    assert exported["source_measurement"]["contour_source"] == "automatic_human_reviewed"
+    assert exported["source_measurement"]["contour_proposal"] == proposal
+    assert client.delete(image["url"]).status_code == 204
+    deleted = client.get(base).json()
+    assert deleted["contour_proposals"] == []
+    assert not any(version["kind"] == "contour_proposal" for version in deleted["versions"])
+    assert client.get(original_model["downloads"]["parameters"]).status_code == 404
+    assert client.get(generated.json()["downloads"]["parameters"]).status_code == 404
+
+
+def test_external_design_preferences_are_validated_persisted_and_invalidate_only_geometry_review(client):
+    session, _, measured = calibrated_session(client)
+    base = f"/api/sessions/{session['id']}"
+    assert client.get(base).json()["design"] == {"tip_shape": "oval", "extension_mm": 2}
+    for bad in [
+        {"tip_shape": "square", "extension_mm": 2},
+        {"tip_shape": "almond", "extension_mm": -1},
+        {"tip_shape": "oval", "extension_mm": 16},
+        {"tip_shape": "oval", "extension_mm": float("nan")},
+        {"tip_shape": "oval", "extension_mm": True},
+        {"tip_shape": "oval", "extension_mm": 2, "width_mm": 8},
+    ]:
+        assert client.patch(base, content=json.dumps({"design": bad}), headers={"Content-Type": "application/json"}).status_code == 422
+    for shape, extension in [("oval", 0), ("squoval", 15), ("almond", 4)]:
+        response = client.patch(base, json={"design": {"tip_shape": shape, "extension_mm": extension}})
+        assert response.status_code == 200, response.text
+        assert response.json()["design"] == {"tip_shape": shape, "extension_mm": extension}
+        assert response.json()["measurement"] == measured
+    parameters = {**geometry_parameters(), "tip_shape": "almond", "extension_mm": 4}
+    generated = client.post(base + "/generate", json={"parameters": parameters, "review_confirmed": True})
+    assert generated.status_code == 201, generated.text
+    model_id = generated.json()["id"]
+    accepted = {"contour_accepted": True, "geometry_accepted": True, "notes": "Geometric inspection only", "issues": []}
+    client.patch(base, json={"feedback": accepted, "state": "geometrically_reviewed"})
+    changed = client.patch(base, json={"design": {"tip_shape": "squoval", "extension_mm": 3}}).json()
+    assert changed["design"] == {"tip_shape": "squoval", "extension_mm": 3}
+    assert changed["latest_model"]["id"] == model_id
+    assert changed["state"] == "measurement_review_needed"
+    assert changed["feedback"]["geometry_accepted"] is False
+    assert changed["feedback"]["contour_accepted"] is True
+    assert changed["measurement"] == measured
+    assert any(version["kind"] == "design" for version in changed["versions"])
+    assert client.get(base).json()["design"] == {"tip_shape": "squoval", "extension_mm": 3}
+    # Legacy records inherit their existing model's actual external design.
+    owner = hashlib.sha256(client.cookies.get("nailform_workspace").encode()).hexdigest()
+    legacy = client.app.state.store.get(owner, session["id"])
+    del legacy["design"]
+    client.app.state.store.put(owner, legacy)
+    assert client.get(base).json()["design"] == {"tip_shape": "almond", "extension_mm": 4}
 
 
 def test_consent_is_required_and_workspace_is_private(client, tmp_path):

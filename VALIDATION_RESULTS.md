@@ -1,6 +1,10 @@
 # Verified results — 2026-11-11
 
-## Current instance
+## Live assistance and free-edge update
+
+The complete current backend suite passes **55 tests**. The final Pages build passes the existing **40** browser workflow checks and **27** additional live-camera/editor checks. Automatic proposal persistence, live framing guidance, synthetic contrast detection and distal-only CAD invariants have separate checks recorded in [PAGES_VALIDATION.md](PAGES_VALIDATION.md). All optical/video inputs in these automated checks are synthetic. Real phone camera behavior, anatomical detection accuracy and physical fit remain unverified.
+
+## Initial Python MVP validation
 
 - Python 3.12.14, Node 24.22.1, npm 11.9.0; Linux x86_64.
 - `bash scripts/install.sh` completed and was repeated successfully. All 58 Python packages are transitively pinned with SHA256 hashes; npm uses the saved lockfile with 85 installed packages. No TLS, signature or checksum verification was disabled.
@@ -18,7 +22,7 @@ The test uses Chromium's explicitly enabled **synthetic camera device**, not rea
 
 The workflow then uploaded the independent synthetic planar reference, placed calibration endpoints, dragged all twelve contour points, tested keyboard correction and undo, acknowledged review, generated an actual CAD solid, rendered its mesh, downloaded STL/STEP, inspected exported provenance, saved professional review and photo pins, recorded independent reference observations, and verified session persistence through browser reload. Test sessions were deleted at completion; only clearly synthetic screenshots and exported demonstration files remain in ignored `artifacts/`.
 
-## Demonstration measurements and output
+## Initial demonstration measurements and output
 
 For `tests/fixtures/planar-reference.png`:
 
@@ -51,8 +55,6 @@ A second synthetic session deliberately shifted the distal point by four pixels.
 
 Real iOS Safari/Android camera behavior, device-specific calibration, physical metrology, print-to-reference fit, and material/wear suitability were not tested. Original N01–N05 regressions could not run in this initial validation because their source package was unavailable then; its later upload/inspection is recorded in `LEGACY_ASSET_INVENTORY.md`. Touch & Slide, ArUco/perspective correction and automatic 3D recovery are not implemented. These do not become validated by successful software tests.
 
-## Cloud configuration and source state
+## Cloud configuration and publication
 
-The requested Git remote was readable but advertised no refs; the checkout is a valid symbolic unborn `work` branch. Source files are left uncommitted for user review; no commit or push was performed. Cloud setup uses the prepared filesystem snapshot. A clean clone of the still-empty remote cannot reproduce these new application files until they are committed and pushed separately.
-
-The environment draft stores installation/startup instructions and the discovered repository path. Saving a draft does not execute it, publish a snapshot, or validate a new task's restoration. Publication and fresh-task restoration have not been performed by the agent.
+The original empty repository was populated on `main` after the owner requested GitHub Pages publication. GitHub Actions builds, tests and publishes only the static browser edition. The Python workflow remains available for local use. Environment-draft publication and public-site publication are separate actions; a saved cloud draft does not deploy the site. Fresh-task cloud snapshot restoration has not been independently verified here.

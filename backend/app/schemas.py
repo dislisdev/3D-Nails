@@ -25,6 +25,19 @@ class MeasurementRequest(StrictModel):
     contour: list[Point] = Field(min_length=12, max_length=12)
     calibration: Calibration
     method: Literal["calibrated_photo"] = "calibrated_photo"
+    proposal_id: str | None = Field(default=None, min_length=1, max_length=100)
+
+
+class ProposalPoint(Point):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, strict=True)
+
+
+class ContourProposalRequest(StrictModel):
+    image_id: str = Field(min_length=1, max_length=100)
+    points: list[ProposalPoint] = Field(min_length=12, max_length=12)
+    method: Literal["contrast_outline_v1"]
+    source: Literal["live_camera", "photo"]
+    tip_direction: Literal["up", "down"]
 
 
 class SessionCreate(StrictModel):
@@ -56,6 +69,11 @@ class Annotation(StrictModel):
     note: str = Field(min_length=1, max_length=1000)
 
 
+class DesignPreference(StrictModel):
+    tip_shape: Literal["oval", "squoval", "almond"]
+    extension_mm: float = Field(ge=0, le=15, strict=True)
+
+
 State = Literal[
     "draft", "measurement_review_needed", "geometrically_reviewed",
     "lab_print_requested", "printed", "evaluated_on_reference_model",
@@ -68,6 +86,7 @@ class SessionPatch(StrictModel):
     feedback: Feedback | None = None
     experiment: Experiment | None = None
     annotations: list[Annotation] | None = Field(default=None, max_length=100)
+    design: DesignPreference | None = None
 
 
 class GeometryParameters(StrictModel):

@@ -22,9 +22,8 @@ await esbuild.build({
   target: "node22",
   outfile: join(output, "geometry.mjs"),
 });
-const { generateBrowserGeometry, inspectBrowserMesh } = await import(
-  pathToFileURL(join(output, "geometry.mjs")).href
-);
+const { generateBrowserGeometry, inspectBrowserMesh, browserSurfacePoint } =
+  await import(pathToFileURL(join(output, "geometry.mjs")).href);
 const base = {
   length_mm: 15,
   width_mm: 12,
@@ -153,6 +152,63 @@ const reversed = {
   faces: original.mesh.faces.map((face) => [...face].reverse()),
 };
 assert.equal(inspectBrowserMesh(reversed).checks.nonzero_volume, false);
+passed++;
+for (const extension of [0, 0.1, 2, 15]) {
+  const parameters = { ...base, extension_mm: extension, asymmetry_mm: 1.5 };
+  const boundary = parameters.length_mm / (parameters.length_mm + extension);
+  for (const u of [-1, -0.6, 0, 0.4, 1])
+    for (const fraction of [0, 0.2, 0.45, 0.8, 1]) {
+      const expected = browserSurfacePoint(u, fraction * boundary, parameters);
+      for (const shape of ["oval", "almond", "squoval"])
+        assert.deepEqual(
+          browserSurfacePoint(u, fraction * boundary, {
+            ...parameters,
+            tip_shape: shape,
+          }),
+          expected,
+        );
+    }
+}
+passed++;
+const shapeModels = ["oval", "almond", "squoval"].map((tip_shape) =>
+  generateBrowserGeometry({ ...base, tip_shape }),
+);
+for (const model of shapeModels) {
+  assert.equal(model.metadata.tip_shape_applies_to, "free_edge_extension");
+  assert.equal(model.metadata.landmarks_mm.distal[1], base.length_mm);
+  assert.equal(
+    model.metadata.landmarks_mm.design_tip[1],
+    base.length_mm + base.extension_mm,
+  );
+}
+assert.notDeepEqual(shapeModels[0].mesh.vertices, shapeModels[1].mesh.vertices);
+const along = shapeModels[0].metadata.sampling_grid.along;
+for (let acrossIndex = 0; acrossIndex < 25; acrossIndex++)
+  for (let alongIndex = 0; alongIndex <= 32; alongIndex++) {
+    const index = acrossIndex * along + alongIndex;
+    for (const other of shapeModels.slice(1)) {
+      assert.deepEqual(
+        other.mesh.vertices[index],
+        shapeModels[0].mesh.vertices[index],
+      );
+      assert.deepEqual(
+        other.mesh.vertices[index + 25 * along],
+        shapeModels[0].mesh.vertices[index + 25 * along],
+      );
+    }
+  }
+passed++;
+const noExtension = ["oval", "almond", "squoval"].map((tip_shape) =>
+  generateBrowserGeometry({ ...base, extension_mm: 0, tip_shape }),
+);
+for (const model of noExtension.slice(1)) {
+  assert.deepEqual(model.mesh, noExtension[0].mesh);
+  assert.deepEqual(
+    new Uint8Array(await model.stl.arrayBuffer()),
+    new Uint8Array(await noExtension[0].stl.arrayBuffer()),
+  );
+  assert.equal(model.metadata.tip_shape_active, false);
+}
 passed++;
 console.log(
   `${passed} browser geometry checks passed. Independent CAD fixtures: ${output}`,

@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import trimesh
 
-from app.geometry import generate_geometry, validate_parameters
+from app.geometry import generate_geometry, validate_parameters, _surface_point, _normal
 
 
 BASE = {
@@ -127,3 +127,41 @@ def test_required_parameter_is_not_silently_invented():
     del missing["transverse_rise_mm"]
     with pytest.raises(ValueError, match="transverse_rise_mm is required"):
         validate_parameters(missing)
+
+
+def test_selected_tip_does_not_change_natural_body_or_normals():
+    """A cosmetic free-edge choice must not resize/recurve measured base inputs."""
+    for extension in (0, 0.1, 2, 15):
+        parameters = BASE | {"extension_mm": extension, "asymmetry_mm": 1.5}
+        boundary = parameters["length_mm"] / (parameters["length_mm"] + extension)
+        for u in (-1, -0.6, 0, 0.4, 1):
+            for fraction in (0, 0.2, 0.45, 0.8, 1):
+                v = fraction * boundary
+                expected_point = _surface_point(u, v, parameters)
+                expected_normal = _normal(u, v, parameters)
+                for shape in ("oval", "almond", "squoval"):
+                    changed = parameters | {"tip_shape": shape}
+                    assert _surface_point(u, v, changed) == pytest.approx(expected_point, abs=1e-12)
+                    assert _normal(u, v, changed) == pytest.approx(expected_normal, abs=1e-12)
+        if extension:
+            distal_y = [_surface_point(.7, 1, parameters | {"tip_shape": shape})[1]
+                        for shape in ("oval", "almond", "squoval")]
+            assert len(set(distal_y)) == 3
+
+
+def test_distal_landmark_is_not_the_artificial_extension_tip(tmp_path):
+    result = generate_geometry(BASE, tmp_path)
+    metadata = result["metadata"]
+    assert metadata["tip_shape_applies_to"] == "free_edge_extension"
+    assert metadata["natural_length_mm"] == BASE["length_mm"]
+    assert metadata["landmarks_mm"]["distal"][1] == pytest.approx(BASE["length_mm"])
+    assert metadata["landmarks_mm"]["design_tip"][1] == pytest.approx(BASE["length_mm"] + BASE["extension_mm"])
+
+
+def test_zero_extension_ignores_selected_tip_at_every_surface_sample():
+    parameters = BASE | {"extension_mm": 0}
+    for u in np.linspace(-1, 1, 11):
+        for v in np.linspace(0, 1, 17):
+            baseline = _surface_point(u, v, parameters)
+            for shape in ("almond", "squoval"):
+                assert _surface_point(u, v, parameters | {"tip_shape": shape}) == pytest.approx(baseline, abs=1e-12)

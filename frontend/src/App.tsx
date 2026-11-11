@@ -10,6 +10,10 @@ import type { FormEvent } from "react";
 import {
   ArrowUpRight,
   ArrowRight,
+  ArrowUp,
+  ArrowDown,
+  Move,
+  RotateCcw,
   ChevronLeft,
   ChevronRight,
   Check,
@@ -42,6 +46,7 @@ import type {
   Generation,
   GeometryParameters,
   Feedback,
+  Point,
 } from "./types";
 const LazyViewer = lazy(() => import("./Viewer"));
 function Viewer(props: { model?: Generation; comparison?: Generation }) {
@@ -58,6 +63,11 @@ function Viewer(props: { model?: Generation; comparison?: Generation }) {
   );
 }
 import ContourEditor from "./ContourEditor";
+import NailShapeSelector from "./NailShapeSelector";
+import LiveContourOverlay from "./capture/LiveContourOverlay";
+import { liveFramingGuidance } from "./capture/liveFramingGuidance";
+import { detectCapturedCanvas, useLiveContour } from "./capture/useLiveContour";
+import type { TipDirection } from "./vision/nailContour";
 import {
   ExperimentPanel,
   PhotoAnnotations,
@@ -797,12 +807,39 @@ function Capture({
     [cameraOpen, setCameraOpen] = useState(false),
     [facing, setFacing] = useState<"environment" | "user">("environment"),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [outlineMode, setOutlineMode] = useState<"manual" | "automatic">("manual"),
+    [tipDirection, setTipDirection] = useState<TipDirection>("up"),
+    [captureIssue, setCaptureIssue] = useState("");
   const video = useRef<HTMLVideoElement>(null),
     stream = useRef<MediaStream | null>(null),
     input = useRef<HTMLInputElement>(null);
   const image = session.images?.filter((i) => i.view === view).at(-1),
     hasTop = session.images?.some((i) => i.view === "top");
+  const automatic = view === "top" && outlineMode === "automatic";
+  const tracking = useLiveContour(
+    video,
+    automatic && cameraOpen && !busy,
+    tipDirection,
+    facing,
+  );
+  const guidance = liveFramingGuidance({
+    width: tracking.sourceWidth,
+    height: tracking.sourceHeight,
+    points:
+      tracking.result.status === "candidate"
+        ? tracking.result.points
+        : undefined,
+    outline:
+      tracking.result.status === "candidate"
+        ? tracking.result.outline
+        : undefined,
+    tipDirection,
+    steady: tracking.steady,
+  });
+  useEffect(() => {
+    setCaptureIssue("");
+  }, [view, facing, outlineMode, tipDirection, cameraOpen]);
   useEffect(() => {
     let cancelled = false;
     async function start() {
@@ -849,20 +886,45 @@ function Capture({
       cancelled = true;
       stream.current?.getTracks().forEach((t) => t.stop());
       stream.current = null;
+      if (video.current) video.current.srcObject = null;
     };
   }, [cameraOpen, facing]);
-  async function upload(file: File) {
+  async function upload(
+    file: File,
+    proposal?: { points: Point[]; tipDirection: TipDirection },
+  ) {
     setBusy(true);
     setError("");
+    let savedProposal = false;
     try {
       const data = new FormData();
       data.append("file", file);
-      await api<ImageRecord>(
+      const savedImage = await api<ImageRecord>(
         "/sessions/" + session.id + "/images?view=" + view,
         { method: "POST", body: data },
       );
       setCameraOpen(false);
+      if (proposal) {
+        try {
+          await api("/sessions/" + session.id + "/contour-proposals", {
+            method: "POST",
+            body: JSON.stringify({
+              image_id: savedImage.id,
+              points: proposal.points,
+              method: "contrast_outline_v1",
+              source: "live_camera",
+              tip_direction: proposal.tipDirection,
+            }),
+          });
+          savedProposal = true;
+        } catch (cause) {
+          setError(
+            `The photograph was saved, but its automatic outline could not be saved. Continue with manual tracing. ${message(cause)}`,
+          );
+        }
+      }
       await onUpdated();
+      if (savedProposal) onNext();
     } catch (e) {
       setError(message(e));
     } finally {
@@ -870,27 +932,67 @@ function Capture({
       if (input.current) input.current.value = "";
     }
   }
-  function capture() {
-    if (!video.current?.videoWidth) {
+  async function capture(plainPhoto = false) {
+    if (busy) return;
+    if (!video.current?.videoWidth || video.current.readyState < 2) {
       setError("The camera is not ready yet. Wait for the live preview.");
       return;
     }
+    setError("");
+    setCaptureIssue("");
+    // Freeze the full-resolution frame first. Its own pixels determine the saved proposal.
     const canvas = document.createElement("canvas");
     canvas.width = video.current.videoWidth;
     canvas.height = video.current.videoHeight;
-    canvas.getContext("2d")!.drawImage(video.current, 0, 0);
-    canvas.toBlob(
-      (blob) => {
-        if (blob)
-          upload(new File([blob], view + ".jpg", { type: "image/jpeg" }));
-        else
-          setError(
-            "The photograph could not be captured. Try uploading an image.",
-          );
-      },
-      "image/jpeg",
-      0.95,
-    );
+    const context = canvas.getContext("2d");
+    if (!context) {
+      setError("The photograph could not be captured. Try uploading an image.");
+      return;
+    }
+    context.drawImage(video.current, 0, 0);
+    let proposal: { points: Point[]; tipDirection: TipDirection } | undefined;
+    if (automatic && !plainPhoto) {
+      try {
+        const result = detectCapturedCanvas(canvas, tipDirection);
+        if (result.status !== "candidate") {
+          setCaptureIssue(result.reason);
+          return;
+        }
+        proposal = {
+          tipDirection,
+          points: result.points.map((point) => ({
+            x: Math.max(0, Math.min(canvas.width - 1, point.x * canvas.width)),
+            y: Math.max(
+              0,
+              Math.min(canvas.height - 1, point.y * canvas.height),
+            ),
+          })),
+        };
+      } catch {
+        setCaptureIssue(
+          "Local image analysis is unavailable. Use manual mode.",
+        );
+        return;
+      }
+    }
+    setBusy(true);
+    try {
+      const mime = proposal ? "image/png" : "image/jpeg";
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, mime, 0.95),
+      );
+      if (!blob)
+        throw new Error(
+          "The photograph could not be captured. Try uploading an image.",
+        );
+      await upload(
+        new File([blob], view + (proposal ? ".png" : ".jpg"), { type: mime }),
+        proposal,
+      );
+    } catch (cause) {
+      setError(message(cause));
+      setBusy(false);
+    }
   }
   async function remove() {
     if (!image) return;
@@ -952,14 +1054,84 @@ function Capture({
               </button>
             ))}
           </div>
+          {view === "top" && (
+            <div className="capture-mode-panel">
+              <fieldset className="capture-mode-picker">
+                <legend>{t("Outline mode")}</legend>
+                <div
+                  className="capture-mode-options"
+                  role="group"
+                  aria-label={t("Choose an outline mode")}
+                >
+                  <button
+                    type="button"
+                    disabled={busy}
+                    aria-pressed={outlineMode === "manual"}
+                    onClick={() => setOutlineMode("manual")}
+                  >
+                    <SlidersHorizontal size={17} />
+                    {t("Manual")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    aria-pressed={outlineMode === "automatic"}
+                    onClick={() => setOutlineMode("automatic")}
+                  >
+                    <ScanLine size={17} />
+                    {t("Automatic live")}
+                    <Badge tone="rose">{t("Experimental")}</Badge>
+                  </button>
+                </div>
+              </fieldset>
+              <p className="capture-mode-description">
+                {t(
+                  automatic
+                    ? "Follow an image-derived outline locally in the live top view. Calibration and human review remain required; this does not establish anatomical accuracy."
+                    : "Capture a photograph, then place and review the contour points yourself. Uploads remain available in either mode.",
+                )}
+              </p>
+              {automatic && (
+                <div className="tip-direction-picker">
+                  <span>
+                    {t("Where does the fingertip point in the image?")}
+                  </span>
+                  <div role="group" aria-label={t("Fingertip direction")}>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      aria-pressed={tipDirection === "up"}
+                      onClick={() => setTipDirection("up")}
+                    >
+                      <ArrowUp size={17} />
+                      {t("Fingertip up")}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      aria-pressed={tipDirection === "down"}
+                      onClick={() => setTipDirection("down")}
+                    >
+                      <ArrowDown size={17} />
+                      {t("Fingertip down")}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <div className={`capture-stage ${cameraOpen ? "live" : ""}`}>
             {cameraOpen ? (
               <>
                 <video ref={video} autoPlay playsInline muted />
-                <div className="capture-overlay">
-                  <div className={"finger-guide " + view} />
-                  <span>{t("Keep the whole nail within the guide")}</span>
-                </div>
+                {automatic ? (
+                  <LiveContourOverlay tracking={tracking} guidance={guidance} />
+                ) : (
+                  <div className="capture-overlay">
+                    <div className={"finger-guide " + view} />
+                    <span>{t("Keep the whole nail within the guide")}</span>
+                  </div>
+                )}
                 <span className="live-badge">
                   <span />
                   {t("LIVE PREVIEW")}
@@ -983,7 +1155,13 @@ function Capture({
               </>
             ) : (
               <div className="capture-empty">
-                <div className={"finger-guide " + view} />
+                {automatic ? (
+                  <div className="automatic-capture-empty-visual">
+                    <ScanLine size={60} strokeWidth={1} />
+                  </div>
+                ) : (
+                  <div className={"finger-guide " + view} />
+                )}
                 <div>
                   <span className="small-caps">{t(viewInfo[view].title)}</span>
                   <h3>
@@ -1008,20 +1186,86 @@ function Capture({
               </div>
             )}
           </div>
+          {automatic && (
+            <div
+              className={`live-analysis-status ${cameraOpen && tracking.steady ? "steady" : "finding"}`}
+            >
+              {cameraOpen && tracking.steady ? (
+                <CheckCircle2 size={21} />
+              ) : cameraOpen && guidance.action.startsWith("move_") ? (
+                <Move size={21} />
+              ) : cameraOpen && guidance.action.startsWith("rotate_") ? (
+                <RotateCcw size={21} />
+              ) : (
+                <ScanLine size={21} />
+              )}
+              <div>
+                <strong
+                  className="live-framing-instruction"
+                  role="status"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
+                  {t(
+                    !cameraOpen
+                      ? "Open the camera to start live outline analysis."
+                      : busy
+                        ? "Saving your photograph…"
+                        : guidance.message,
+                  )}
+                </strong>
+                {cameraOpen && !busy && (
+                  <p className="live-framing-detail">
+                    {t(
+                      tracking.result.status === "candidate"
+                        ? tracking.steady
+                          ? "Outline steady — ready to capture for review."
+                          : "A visible boundary is being followed."
+                        : tracking.result.reason,
+                    )}
+                  </p>
+                )}
+                <p className="live-framing-limit">
+                  {t(
+                    "The guide helps framing only. A usable steady outline can be captured without perfect alignment.",
+                  )}
+                </p>
+              </div>
+            </div>
+          )}
           <div className="capture-actions">
             {cameraOpen ? (
               <>
                 <button
                   className="button primary"
-                  onClick={capture}
-                  disabled={busy}
+                  onClick={() => {
+                    void capture();
+                  }}
+                  disabled={busy || (automatic && !tracking.steady)}
                 >
                   <Camera size={18} />
-                  {t("Capture photograph")}
+                  {t(
+                    automatic
+                      ? "Capture with proposed outline"
+                      : "Capture photograph",
+                  )}
                 </button>
+                {automatic && (
+                  <button
+                    type="button"
+                    className="button secondary plain-capture-fallback"
+                    disabled={busy}
+                    onClick={() => {
+                      void capture(true);
+                    }}
+                  >
+                    {t("Capture photo for manual tracing")}
+                  </button>
+                )}
                 <button
                   className="icon-button"
                   aria-label={t("Switch camera")}
+                  disabled={busy}
                   onClick={() =>
                     setFacing(facing === "environment" ? "user" : "environment")
                   }
@@ -1030,6 +1274,7 @@ function Capture({
                 </button>
                 <button
                   className="button subtle"
+                  disabled={busy}
                   onClick={() => setCameraOpen(false)}
                 >
                   {t("Close camera")}
@@ -1080,6 +1325,39 @@ function Capture({
               }}
             />
           </div>
+          {automatic && captureIssue && cameraOpen && (
+            <div className="capture-exact-frame-note" role="alert">
+              <AlertCircle size={18} />
+              <div>
+                <p>
+                  {t(
+                    "The captured frame has no usable automatic outline. No photograph or proposal was saved.",
+                  )}{" "}
+                  {t(captureIssue)}
+                </p>
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={busy}
+                  onClick={() => {
+                    void capture(true);
+                  }}
+                >
+                  {t("Capture a fresh photo for manual tracing instead")}
+                </button>
+              </div>
+            </div>
+          )}
+          {image?.contour_proposal && (
+            <div className="automatic-proposal-note">
+              <CheckCircle2 size={17} />
+              <span>
+                {t(
+                  "Image-derived outline saved. Review and correct it in the next step; calibration and human approval are still required.",
+                )}
+              </span>
+            </div>
+          )}
           {error && <ErrorNotice text={error} />}
         </div>
         <aside className="capture-guide">
@@ -1273,8 +1551,8 @@ function Geometry({
     transverse_rise_mm: 1.2,
     longitudinal_rise_mm: 0.4,
     thickness_mm: 0.5,
-    extension_mm: 2,
-    tip_shape: "oval",
+    extension_mm: session.design?.extension_mm ?? 2,
+    tip_shape: session.design?.tip_shape ?? "oval",
     asymmetry_mm: 0,
   };
   const [parameters, setParameters] = useState(initial),
@@ -1297,6 +1575,15 @@ function Geometry({
     setBusy(true);
     setError("");
     try {
+      await api("/sessions/" + session.id, {
+        method: "PATCH",
+        body: JSON.stringify({
+          design: {
+            tip_shape: parameters.tip_shape,
+            extension_mm: parameters.extension_mm,
+          },
+        }),
+      });
       await api<Generation>("/sessions/" + session.id + "/generate", {
         method: "POST",
         body: JSON.stringify({ parameters, review_confirmed: confirmed }),
@@ -1379,6 +1666,14 @@ function Geometry({
             {t("Physical fit has not been validated.")}
           </span>
         </div>
+      </div>
+      <div className="contour-origin-note">
+        <ScanLine size={16} />
+        <span>
+          {t("Contour origin: {source}", {
+            source: contourOrigin(measurement.contour_source),
+          })}
+        </span>
       </div>
       <div className="measurement-caveat">
         <AlertCircle size={17} />
@@ -1557,25 +1852,23 @@ function Geometry({
             </div>
           ))}
           <div className="parameter-field">
-            <label htmlFor="tip-shape">
-              {t("Extension shape")}
-              <Badge>{t("Manual")}</Badge>
+            <label>
+              {t("Free-edge shape")} <Badge>{t("Manual")}</Badge>
             </label>
-            <select
-              id="tip-shape"
+            <NailShapeSelector
               value={parameters.tip_shape}
-              onChange={(e) => {
-                setParameters({
-                  ...parameters,
-                  tip_shape: e.target.value as GeometryParameters["tip_shape"],
-                });
+              disabled={busy}
+              onChange={(tip_shape) => {
+                setParameters({ ...parameters, tip_shape });
                 setConfirmed(false);
               }}
-            >
-              <option value="oval">{t("Soft oval")}</option>
-              <option value="squoval">{t("Squoval")}</option>
-              <option value="almond">{t("Almond")}</option>
-            </select>
+            />
+            <p className="nail-shape-separation-note">
+              {t("Natural nail outline stays separate.")}{" "}
+              {t(
+                "Shape changes the added extension only. At zero extension, no free edge is added.",
+              )}
+            </p>
           </div>
           <label className="checkbox-label review-confirm">
             <input
@@ -1635,6 +1928,16 @@ function Geometry({
     </>
   );
 }
+function contourOrigin(source?: string) {
+  return t(
+    source === "automatic_human_adjusted"
+      ? "Automatic proposal, manually corrected"
+      : source === "automatic_human_reviewed"
+        ? "Automatic proposal, human reviewed"
+        : "Manually placed contour",
+  );
+}
+
 function MeasurementCard({
   title,
   value,
@@ -1799,6 +2102,14 @@ function Review({
                       ? t("Calibrated 2D")
                       : t("Unavailable")}
                   </Badge>
+                </dd>
+              </div>
+              <div>
+                <dt>{t("Contour origin")}</dt>
+                <dd>
+                  {session.measurement
+                    ? contourOrigin(session.measurement.contour_source)
+                    : t("Unavailable")}
                 </dd>
               </div>
               <div>

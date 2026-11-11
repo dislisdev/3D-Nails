@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - "frontend/**"
-      - "scripts/pages_smoke.cjs"
+      - "scripts/**"
       - "tests/fixtures/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
@@ -39,7 +39,10 @@ jobs:
         run: |
           node scripts/test_browser_api.cjs
           node scripts/test_browser_geometry.mjs "$RUNNER_TEMP/nailform-browser-cad"
+          node scripts/test_nail_contour.mjs "$RUNNER_TEMP/nailform-contour-fixtures"
+          node scripts/test_live_guidance.mjs
           node scripts/pages_smoke.cjs
+          node scripts/live_capture_smoke.cjs
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
           path: frontend/dist

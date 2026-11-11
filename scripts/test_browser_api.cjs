@@ -474,6 +474,567 @@ const esbuild = frontendRequire("esbuild");
       first,
     );
     checks.push(...second.checks);
+    const proposals = await page.evaluate(async () => {
+      const api = globalThis.researchApi,
+        checks = [];
+      const check = (condition, name) => {
+        if (!condition) throw new Error(name);
+        checks.push(name);
+      };
+      const json = (method, value) => ({ method, body: JSON.stringify(value) });
+      const rejects = async (operation, fragment) => {
+        let message = "";
+        try {
+          await operation();
+        } catch (error) {
+          message = error.message;
+        }
+        check(message.includes(fragment), "proposal rejected: " + fragment);
+      };
+      const session = await api(
+        "/sessions",
+        json("POST", {
+          name: "Synthetic automatic proposal audit",
+          consent: true,
+        }),
+      );
+      const base = "/sessions/" + session.id;
+      check(
+        session.design.tip_shape === "oval" &&
+          session.design.extension_mm === 2,
+        "new research sessions retain explicit external design defaults",
+      );
+      const canvas = document.createElement("canvas");
+      canvas.width = 400;
+      canvas.height = 400;
+      const context = canvas.getContext("2d");
+      context.fillStyle = "#bca68b";
+      context.fillRect(0, 0, 400, 400);
+      const blob = await new Promise((resolve) =>
+        canvas.toBlob(resolve, "image/png"),
+      );
+      const upload = async (target, view = "top") => {
+        const form = new FormData();
+        form.append("file", blob, "synthetic.png");
+        return api(target + "/images?view=" + view, {
+          method: "POST",
+          body: form,
+        });
+      };
+      const image = await upload(base);
+      const points = [
+        [200, 50],
+        [250, 50],
+        [275, 90],
+        [280, 150],
+        [280, 220],
+        [250, 250],
+        [200, 250],
+        [150, 250],
+        [120, 220],
+        [120, 150],
+        [125, 90],
+        [150, 50],
+      ].map(([x, y]) => ({ x, y }));
+      const measurement = {
+        image_id: image.id,
+        contour: points,
+        calibration: {
+          a: { x: 10, y: 10 },
+          b: { x: 110, y: 10 },
+          reference_mm: 10,
+        },
+        method: "calibrated_photo",
+      };
+      const manual = await api(base + "/measure", json("POST", measurement));
+      check(
+        manual.contour_source === "manual_control_points",
+        "legacy manual origin remains unchanged",
+      );
+      const parameters = {
+        length_mm: 20,
+        width_mm: 16,
+        transverse_rise_mm: 1.2,
+        longitudinal_rise_mm: 0.4,
+        thickness_mm: 0.5,
+        extension_mm: 2,
+        tip_shape: "oval",
+        asymmetry_mm: 0,
+      };
+      const priorModel = await api(
+        base + "/generate",
+        json("POST", { parameters, review_confirmed: true }),
+      );
+      await api(
+        base,
+        json("PATCH", {
+          state: "geometrically_reviewed",
+          feedback: {
+            notes: "Synthetic geometric review only",
+            issues: [],
+            contour_accepted: true,
+            geometry_accepted: true,
+          },
+        }),
+      );
+      for (const design of [
+        { tip_shape: "square", extension_mm: 2 },
+        { tip_shape: "almond", extension_mm: -1 },
+        { tip_shape: "oval", extension_mm: 16 },
+        { tip_shape: "oval", extension_mm: NaN },
+        { tip_shape: "oval", extension_mm: true },
+      ]) {
+        await rejects(
+          () => api(base, json("PATCH", { design })),
+          design.tip_shape === "square"
+            ? "extension shape"
+            : "Extension length",
+        );
+      }
+      await api(
+        base,
+        json("PATCH", { design: { tip_shape: "almond", extension_mm: 4 } }),
+      );
+      const designChanged = await api(base);
+      check(
+        designChanged.design.tip_shape === "almond" &&
+          designChanged.design.extension_mm === 4,
+        "external design preferences persist independently",
+      );
+      check(
+        designChanged.latest_model.id === priorModel.id &&
+          designChanged.measurement.id === manual.id,
+        "design preference changes preserve the old CAD preview and source measurement",
+      );
+      check(
+        !designChanged.feedback.geometry_accepted &&
+          designChanged.feedback.contour_accepted &&
+          designChanged.state === "measurement_review_needed",
+        "external design changes invalidate only geometric review",
+      );
+      await api(
+        base,
+        json("PATCH", { design: { tip_shape: "squoval", extension_mm: 15 } }),
+      );
+      await api(
+        base,
+        json("PATCH", { design: { tip_shape: "oval", extension_mm: 0 } }),
+      );
+      check(
+        (await api(base)).design.extension_mm === 0,
+        "all supported design shapes and extension bounds accepted",
+      );
+      await api(
+        base,
+        json("PATCH", {
+          design: { tip_shape: "oval", extension_mm: 2 },
+          state: "geometrically_reviewed",
+          feedback: {
+            notes: "Synthetic geometric review only",
+            issues: [],
+            contour_accepted: true,
+            geometry_accepted: true,
+          },
+        }),
+      );
+      // Simulate an existing saved record from before proposal fields existed.
+      const connection = await new Promise((resolve, reject) => {
+        const request = indexedDB.open("nailform-lab-browser-research-v1", 1);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      await new Promise((resolve, reject) => {
+        const transaction = connection.transaction("sessions", "readwrite"),
+          store = transaction.objectStore("sessions"),
+          get = store.get(session.id);
+        get.onsuccess = () => {
+          const legacy = get.result;
+          delete legacy.contour_proposals;
+          delete legacy.design;
+          store.put(legacy);
+        };
+        transaction.oncomplete = resolve;
+        transaction.onabort = () => reject(transaction.error);
+      });
+      connection.close();
+      check(
+        (await api(base)).contour_proposals.length === 0,
+        "legacy saved sessions without proposal fields remain usable",
+      );
+      check(
+        (await api(base)).design.tip_shape === "oval",
+        "legacy design preference derives from existing generated geometry",
+      );
+      const request = {
+        image_id: image.id,
+        points,
+        method: "contrast_outline_v1",
+        source: "photo",
+        tip_direction: "down",
+      };
+      for (const [name, change, fragment] of [
+        [
+          "out of bounds",
+          (data) => {
+            data.points[1].x = 400;
+          },
+          "inside the original image",
+        ],
+        [
+          "crossing",
+          (data) => {
+            [data.points[2], data.points[8]] = [data.points[8], data.points[2]];
+          },
+          "cross or touch",
+        ],
+        [
+          "duplicate",
+          (data) => {
+            data.points[1] = { ...data.points[2] };
+          },
+          "distinct",
+        ],
+        [
+          "nonfinite",
+          (data) => {
+            data.points[1].x = NaN;
+          },
+          "finite",
+        ],
+        [
+          "boolean",
+          (data) => {
+            data.points[1].x = true;
+          },
+          "finite",
+        ],
+        [
+          "wrong count",
+          (data) => {
+            data.points.pop();
+          },
+          "exactly twelve",
+        ],
+        [
+          "wrong sidewalls",
+          (data) => {
+            data.points.reverse();
+          },
+          "sidewall landmarks",
+        ],
+        [
+          "unsupported method",
+          (data) => {
+            data.method = "verified_scan";
+          },
+          "method is unsupported",
+        ],
+        [
+          "unsupported source",
+          (data) => {
+            data.source = "measured";
+          },
+          "proposal source",
+        ],
+        [
+          "unsupported orientation",
+          (data) => {
+            data.tip_direction = "left";
+          },
+          "tip direction",
+        ],
+      ]) {
+        const invalid = structuredClone(request);
+        change(invalid);
+        await rejects(
+          () => api(base + "/contour-proposals", json("POST", invalid)),
+          fragment,
+        );
+        check(
+          (await api(base)).contour_proposals.length === 0,
+          "invalid " + name + " proposal did not persist",
+        );
+      }
+      const side = await upload(base, "side");
+      await rejects(
+        () =>
+          api(
+            base + "/contour-proposals",
+            json("POST", { ...request, image_id: side.id }),
+          ),
+        "Only top-view",
+      );
+      // Reconfirm after this independent photo change, before checking proposal-only behavior.
+      await api(
+        base,
+        json("PATCH", {
+          state: "geometrically_reviewed",
+          feedback: {
+            notes: "Synthetic geometric review only",
+            issues: [],
+            contour_accepted: true,
+            geometry_accepted: true,
+          },
+        }),
+      );
+      const first = await api(
+        base + "/contour-proposals",
+        json("POST", request),
+      );
+      check(
+        first.review_required === true && first.points.length === 12,
+        "stored automatic candidates always require human review",
+      );
+      const pending = await api(base);
+      check(
+        pending.measurement.id === manual.id &&
+          pending.latest_model.id === priorModel.id &&
+          pending.state === "geometrically_reviewed",
+        "proposal storage preserves previously confirmed measurement and model",
+      );
+      check(
+        pending.images.find((item) => item.id === image.id).contour_proposal
+          .id === first.id,
+        "latest proposal exposed on owning image metadata",
+      );
+      const changedRequest = structuredClone(request);
+      changedRequest.points[1].x += 2;
+      changedRequest.source = "live_camera";
+      const next = await api(
+        base + "/contour-proposals",
+        json("POST", changedRequest),
+      );
+      check(
+        (await api(base)).contour_proposals.length === 2,
+        "new proposal preserves previous audit snapshot",
+      );
+      check(
+        (await api(base)).versions.some(
+          (version) =>
+            version.kind === "contour_proposal" &&
+            version.proposal.id === first.id,
+        ),
+        "proposal audit version retains raw original points",
+      );
+      const otherSession = await api(
+          "/sessions",
+          json("POST", { name: "Separate source image", consent: true }),
+        ),
+        otherBase = "/sessions/" + otherSession.id;
+      const otherImage = await upload(otherBase);
+      await rejects(
+        () =>
+          api(
+            base + "/contour-proposals",
+            json("POST", { ...request, image_id: otherImage.id }),
+          ),
+        "Image not found",
+      );
+      const foreign = await api(
+        otherBase + "/contour-proposals",
+        json("POST", { ...request, image_id: otherImage.id }),
+      );
+      const secondOtherImage = await upload(otherBase);
+      const secondOtherProposal = await api(
+        otherBase + "/contour-proposals",
+        json("POST", { ...request, image_id: secondOtherImage.id }),
+      );
+      await rejects(
+        () =>
+          api(
+            otherBase + "/measure",
+            json("POST", {
+              ...measurement,
+              image_id: otherImage.id,
+              proposal_id: secondOtherProposal.id,
+            }),
+          ),
+        "not found for this image",
+      );
+      await rejects(
+        () =>
+          api(
+            base + "/measure",
+            json("POST", { ...measurement, proposal_id: foreign.id }),
+          ),
+        "not found for this image",
+      );
+      await rejects(
+        () =>
+          api(
+            base + "/measure",
+            json("POST", { ...measurement, proposal_id: "missing" }),
+          ),
+        "not found for this image",
+      );
+      const automatic = await api(
+        base + "/measure",
+        json("POST", { ...measurement, proposal_id: first.id }),
+      );
+      check(
+        automatic.contour_source === "automatic_human_reviewed" &&
+          automatic.contour_proposal_id === first.id,
+        "unchanged reviewed proposal has explicit automatic origin",
+      );
+      check(
+        automatic.contour_proposal.id === first.id &&
+          automatic.provenance.transverse_rise_mm === "unknown",
+        "original proposal persists without inventing curvature",
+      );
+      const tolerance = structuredClone(measurement);
+      tolerance.contour[10].x += 0.01;
+      check(
+        (
+          await api(
+            base + "/measure",
+            json("POST", { ...tolerance, proposal_id: first.id }),
+          )
+        ).contour_source === "automatic_human_reviewed",
+        "0.01 pixel tolerance is stable at floating-point boundary",
+      );
+      const adjustedRequest = structuredClone(measurement);
+      adjustedRequest.contour[1].x += 0.02;
+      const adjusted = await api(
+        base + "/measure",
+        json("POST", { ...adjustedRequest, proposal_id: first.id }),
+      );
+      check(
+        adjusted.contour_source === "automatic_human_adjusted" &&
+          adjusted.contour_proposal.points[1].x === points[1].x,
+        "manual adjustment is distinct from immutable automatic proposal",
+      );
+      const explicitManual = await api(
+        base + "/measure",
+        json("POST", measurement),
+      );
+      check(
+        explicitManual.contour_source === "manual_control_points" &&
+          !explicitManual.contour_proposal_id,
+        "manual mode does not inherit automatic proposal provenance",
+      );
+      const upwardRequest = {
+        ...request,
+        tip_direction: "up",
+        points: points.map((point) => ({ x: 399 - point.x, y: 399 - point.y })),
+      };
+      const upward = await api(
+        base + "/contour-proposals",
+        json("POST", upwardRequest),
+      );
+      check(
+        upward.tip_direction === "up",
+        "upward user-specified tip orientation accepts correct axis mapping",
+      );
+      await api(
+        base + "/measure",
+        json("POST", { ...adjustedRequest, proposal_id: first.id }),
+      );
+      const generated = await api(
+        base + "/generate",
+        json("POST", { parameters, review_confirmed: true }),
+      );
+      const exported = await (
+        await fetch(generated.downloads.parameters)
+      ).json();
+      check(
+        exported.source_measurement.contour_source ===
+          "automatic_human_adjusted" &&
+          exported.source_measurement.contour_proposal.id === first.id,
+        "CAD export retains original automatic proposal and adjustment provenance",
+      );
+      check(
+        exported.source_measurement.contour_proposal.points[1].x ===
+          points[1].x,
+        "export audit snapshot remains original after newer proposals",
+      );
+      await api(otherBase, { method: "DELETE" });
+      return {
+        checks,
+        sid: session.id,
+        imageId: image.id,
+        proposalId: first.id,
+        latestProposalId: upward.id,
+        modelId: generated.id,
+        priorModelId: priorModel.id,
+        secondProposalId: next.id,
+      };
+    });
+    checks.push(...proposals.checks);
+    await page.reload();
+    const proposalReload = await page.evaluate(
+      async ({
+        sid,
+        imageId,
+        proposalId,
+        latestProposalId,
+        modelId,
+        priorModelId,
+      }) => {
+        const api = globalThis.researchApi,
+          checks = [],
+          base = "/sessions/" + sid;
+        const check = (condition, name) => {
+          if (!condition) throw new Error(name);
+          checks.push(name);
+        };
+        const restored = await api(base);
+        check(
+          restored.contour_proposals.length === 3 &&
+            restored.contour_proposals.some(
+              (proposal) => proposal.id === proposalId,
+            ),
+          "all automatic proposal versions survive browser reload",
+        );
+        check(
+          restored.images.find((image) => image.id === imageId).contour_proposal
+            .id === latestProposalId,
+          "current image proposal survives reload",
+        );
+        check(
+          restored.measurement.contour_source === "automatic_human_adjusted" &&
+            restored.measurement.contour_proposal.id === proposalId,
+          "measurement original proposal audit survives reload",
+        );
+        check(
+          restored.design.tip_shape === "oval" &&
+            restored.design.extension_mm === 2,
+          "external design preferences survive browser reload",
+        );
+        const exported = await (
+          await fetch(restored.latest_model.downloads.parameters)
+        ).json();
+        check(
+          exported.source_measurement.contour_proposal.id === proposalId,
+          "restored export Blob retains automatic proposal snapshot",
+        );
+        await api(base + "/images/" + imageId, { method: "DELETE" });
+        const deleted = await api(base);
+        check(
+          deleted.contour_proposals.length === 0 &&
+            !deleted.versions.some(
+              (version) => version.kind === "contour_proposal",
+            ),
+          "image deletion purges all its proposal versions and audit snapshots",
+        );
+        for (const id of [modelId, priorModelId]) {
+          let failed = false;
+          try {
+            await api(base + "/models/" + id);
+          } catch {
+            failed = true;
+          }
+          check(failed, "image deletion removes proposal-dependent CAD " + id);
+        }
+        await api(base, { method: "DELETE" });
+        check(
+          (await api("/sessions")).length === 0,
+          "proposal test sessions removed without leaving research records",
+        );
+        return checks;
+      },
+      proposals,
+    );
+    checks.push(...proposalReload);
     assert.deepEqual(errors, [], "unhandled browser errors");
     checks.forEach((name) => console.log("PASS", name));
     console.log(

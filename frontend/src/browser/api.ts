@@ -4,11 +4,13 @@
  */
 import type {
   CaptureView,
+  ContourProposal,
   Feedback,
   Generation,
   GeometryParameters,
   ImageRecord,
   Measurement,
+  Point,
   Session,
 } from "../types";
 import { measurePolygon, validateMeasurementInput } from "./measurement";
@@ -28,11 +30,16 @@ type Annotation = {
   y: number;
   note: string;
 };
+type DesignPreference = {
+  tip_shape: GeometryParameters["tip_shape"];
+  extension_mm: number;
+};
 type BrowserMeasurement = Measurement & {
   id: string;
   created_at: string;
   units: "mm";
   contour_source: string;
+  contour_proposal?: ContourProposal;
 };
 type BrowserGeneration = Generation & {
   source_image_id: string;
@@ -66,6 +73,8 @@ type StoredSession = Omit<
     reason?: string;
   }[];
   generation_failures: { created_at: string; reason: string }[];
+  contour_proposals: ContourProposal[];
+  design: DesignPreference;
 };
 type ImageAsset = {
   key: string;
@@ -336,6 +345,11 @@ async function requireSession(id: string) {
     throw new Error(
       "Research session not found in this browser. Sessions do not sync across devices or browsers.",
     );
+  session.contour_proposals ??= [];
+  session.design ??= {
+    tip_shape: session.latest_model?.parameters.tip_shape ?? "oval",
+    extension_mm: session.latest_model?.parameters.extension_mm ?? 2,
+  };
   return session;
 }
 function requireImage(session: StoredSession, id: string) {
@@ -369,6 +383,11 @@ async function materializeSession(
   stored: StoredSession,
 ): Promise<StoredSession> {
   const session = structuredClone(stored);
+  session.contour_proposals ??= [];
+  session.design ??= {
+    tip_shape: session.latest_model?.parameters.tip_shape ?? "oval",
+    extension_mm: session.latest_model?.parameters.extension_mm ?? 2,
+  };
   session.images = await Promise.all(
     session.images.map(async (image) => {
       const asset = await readRecord<ImageAsset>(
@@ -409,6 +428,109 @@ function invalidateReview(session: StoredSession) {
   session.feedback.contour_accepted = false;
   session.feedback.geometry_accepted = false;
   delete session.latest_model;
+}
+
+/** Topology/landmark checks only. A stored proposal is not verified segmentation. */
+function proposalPoints(value: unknown, image: BrowserImage): Point[] {
+  if (!Array.isArray(value) || value.length !== 12)
+    throw new Error(
+      "An automatic contour proposal must contain exactly twelve control points.",
+    );
+  const points = value.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry))
+      throw new Error(
+        "Automatic contour proposal points must be finite and inside the original image.",
+      );
+    const point = entry as Record<string, unknown>;
+    if (
+      Object.keys(point).some((key) => !["x", "y"].includes(key)) ||
+      typeof point.x !== "number" ||
+      typeof point.y !== "number" ||
+      !Number.isFinite(point.x) ||
+      !Number.isFinite(point.y) ||
+      point.x < 0 ||
+      point.y < 0 ||
+      point.x >= image.width ||
+      point.y >= image.height
+    ) {
+      throw new Error(
+        "Automatic contour proposal points must be finite and inside the original image.",
+      );
+    }
+    return { x: point.x, y: point.y };
+  });
+  if (new Set(points.map((point) => `${point.x},${point.y}`)).size !== 12)
+    throw new Error("Automatic contour proposal points must be distinct.");
+  const area2 = points.reduce(
+    (sum, p, index) =>
+      sum + p.x * points[(index + 1) % 12].y - points[(index + 1) % 12].x * p.y,
+    0,
+  );
+  if (Math.abs(area2) < 8)
+    throw new Error("The automatic contour proposal has no usable area.");
+  const cross = (a: Point, b: Point, c: Point) =>
+    (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  const onSegment = (a: Point, b: Point, p: Point) =>
+    Math.min(a.x, b.x) - 1e-8 <= p.x &&
+    p.x <= Math.max(a.x, b.x) + 1e-8 &&
+    Math.min(a.y, b.y) - 1e-8 <= p.y &&
+    p.y <= Math.max(a.y, b.y) + 1e-8;
+  for (let i = 0; i < 12; i++)
+    for (let j = i + 1; j < 12; j++) {
+      if (j === i + 1 || (i === 0 && j === 11)) continue;
+      const a = points[i],
+        b = points[(i + 1) % 12],
+        c = points[j],
+        d = points[(j + 1) % 12];
+      const [x1, x2, x3, x4] = [
+        cross(a, b, c),
+        cross(a, b, d),
+        cross(c, d, a),
+        cross(c, d, b),
+      ];
+      const crosses =
+        x1 > 0 !== x2 > 0 &&
+        x3 > 0 !== x4 > 0 &&
+        [x1, x2, x3, x4].every((v) => Math.abs(v) > 1e-8);
+      if (
+        crosses ||
+        (Math.abs(x1) < 1e-8 && onSegment(a, b, c)) ||
+        (Math.abs(x2) < 1e-8 && onSegment(a, b, d)) ||
+        (Math.abs(x3) < 1e-8 && onSegment(c, d, a)) ||
+        (Math.abs(x4) < 1e-8 && onSegment(c, d, b))
+      ) {
+        throw new Error(
+          "Automatic contour proposal edges cross or touch. Retake the photograph or use manual mode.",
+        );
+      }
+    }
+  const proximal = points[0],
+    distal = points[6],
+    length = Math.hypot(distal.x - proximal.x, distal.y - proximal.y);
+  if (length < 5)
+    throw new Error(
+      "Automatic contour proposal landmarks do not define a usable cuticle-to-distal axis.",
+    );
+  const along = {
+    x: (distal.x - proximal.x) / length,
+    y: (distal.y - proximal.y) / length,
+  };
+  const local = points.map((p) => ({
+    x: (p.x - proximal.x) * along.y - (p.y - proximal.y) * along.x,
+    y: (p.x - proximal.x) * along.x + (p.y - proximal.y) * along.y,
+  }));
+  if (local[3].x <= 1 || local[9].x >= -1)
+    throw new Error(
+      "Automatic contour proposal sidewall landmarks are inconsistent. Use manual mode or retake the photograph.",
+    );
+  if (
+    Math.min(...local.map((p) => p.y)) < -length * 0.1 ||
+    Math.max(...local.map((p) => p.y)) > length * 1.1
+  )
+    throw new Error(
+      "Automatic contour proposal cuticle and distal landmarks do not span the outline.",
+    );
+  return points;
 }
 
 function object(value: unknown, label = "Request"): Record<string, unknown> {
@@ -455,6 +577,26 @@ function jsonBody(options: RequestInit) {
       ? new Error("The request body is not valid JSON.")
       : error;
   }
+}
+function designPreference(value: unknown): DesignPreference {
+  const data = object(value, "Design preferences");
+  onlyKeys(data, ["tip_shape", "extension_mm"]);
+  if (
+    data.tip_shape !== "oval" &&
+    data.tip_shape !== "squoval" &&
+    data.tip_shape !== "almond"
+  )
+    throw new Error("Choose oval, squoval, or almond as the extension shape.");
+  if (
+    typeof data.extension_mm !== "number" ||
+    !Number.isFinite(data.extension_mm) ||
+    data.extension_mm < 0 ||
+    data.extension_mm > 15
+  )
+    throw new Error(
+      "Extension length must be a finite number between 0 and 15 mm.",
+    );
+  return { tip_shape: data.tip_shape, extension_mm: data.extension_mm };
 }
 function feedback(value: unknown): Feedback {
   const data = object(value, "Feedback");
@@ -616,9 +758,7 @@ function imageHeader(bytes: Uint8Array): { width: number; height: number } {
   );
 }
 
-async function decodedImage(
-  file: Blob,
-): Promise<{
+async function decodedImage(file: Blob): Promise<{
   source: CanvasImageSource;
   width: number;
   height: number;
@@ -852,6 +992,8 @@ async function route(path: string, options: RequestInit): Promise<unknown> {
         capture_attempts: [],
         generation_failures: [],
         annotations: [],
+        contour_proposals: [],
+        design: { tip_shape: "oval", extension_mm: 2 },
         experiment: experiment({}),
       };
       version(
@@ -889,6 +1031,7 @@ async function route(path: string, options: RequestInit): Promise<unknown> {
         "feedback",
         "experiment",
         "annotations",
+        "design",
       ]);
       if (data.name != null) {
         session.name = string(data.name, "Session name", 120, 1).trim();
@@ -925,6 +1068,24 @@ async function route(path: string, options: RequestInit): Promise<unknown> {
             "This state requires a current generated model and recorded geometric review.",
           );
         session.state = state;
+      }
+      if (data.design != null) {
+        const design = designPreference(data.design);
+        if (
+          session.latest_model &&
+          (session.design.tip_shape !== design.tip_shape ||
+            session.design.extension_mm !== design.extension_mm)
+        ) {
+          session.feedback.geometry_accepted = false;
+          session.state = "measurement_review_needed";
+        }
+        session.design = design;
+        version(
+          session,
+          "design",
+          "External extension design preferences saved.",
+          { design: structuredClone(design) },
+        );
       }
       if (data.annotations != null) {
         session.annotations = annotations(data.annotations, session);
@@ -1052,6 +1213,9 @@ async function route(path: string, options: RequestInit): Promise<unknown> {
       session.annotations = session.annotations.filter(
         (annotation) => annotation.image_id !== imageId,
       );
+      session.contour_proposals = session.contour_proposals.filter(
+        (proposal) => proposal.image_id !== imageId,
+      );
       session.model_ids = keepModels;
       session.versions = session.versions.filter(
         (v) =>
@@ -1087,13 +1251,77 @@ async function route(path: string, options: RequestInit): Promise<unknown> {
       return undefined;
     }
   }
+  if (
+    parts[2] === "contour-proposals" &&
+    parts.length === 3 &&
+    method === "POST"
+  ) {
+    const data = jsonBody(options);
+    onlyKeys(data, ["image_id", "points", "method", "source", "tip_direction"]);
+    if (typeof data.image_id !== "string" || !data.image_id)
+      throw new Error(
+        "Select the top-view photograph for the contour proposal.",
+      );
+    const image = requireImage(session, data.image_id);
+    if (image.view !== "top")
+      throw new Error(
+        "Only top-view photographs support an automatic contour proposal.",
+      );
+    if (data.method !== "contrast_outline_v1")
+      throw new Error("The contour proposal method is unsupported.");
+    if (data.source !== "live_camera" && data.source !== "photo")
+      throw new Error(
+        "Choose live_camera or photo as the contour proposal source.",
+      );
+    if (data.tip_direction !== "up" && data.tip_direction !== "down")
+      throw new Error("Choose up or down as the proposed tip direction.");
+    const proposal: ContourProposal = {
+      id: uuid(),
+      image_id: image.id,
+      points: proposalPoints(data.points, image),
+      method: data.method,
+      source: data.source,
+      tip_direction: data.tip_direction,
+      created_at: timestamp(),
+      review_required: true,
+    };
+    session.contour_proposals.push(proposal);
+    image.contour_proposal = structuredClone(proposal);
+    version(
+      session,
+      "contour_proposal",
+      "Experimental image-derived contour proposal stored; manual review and calibration remain required.",
+      { image_id: image.id, proposal: structuredClone(proposal) },
+    );
+    await saveSession(session);
+    return proposal;
+  }
   if (parts[2] === "measure" && parts.length === 3 && method === "POST") {
-    const input = validateMeasurementInput(jsonBody(options)),
+    const { proposal_id: proposalId, ...measurementInput } = jsonBody(options);
+    const input = validateMeasurementInput(measurementInput),
       image = requireImage(session, input.image_id);
     if (image.view !== "top")
       throw new Error(
         "The calibrated 2D method currently uses the top-view image only.",
       );
+    let proposal: ContourProposal | undefined;
+    if (proposalId != null) {
+      if (
+        typeof proposalId !== "string" ||
+        !proposalId ||
+        proposalId.length > 100
+      )
+        throw new Error(
+          "Contour proposal identifier must be a nonempty string.",
+        );
+      proposal = session.contour_proposals.find(
+        (entry) => entry.id === proposalId && entry.image_id === input.image_id,
+      );
+      if (!proposal)
+        throw new Error(
+          "Contour proposal not found for this image in this research session.",
+        );
+    }
     const measured: BrowserMeasurement = {
       ...measurePolygon(input, image.width, image.height),
       id: uuid(),
@@ -1102,16 +1330,37 @@ async function route(path: string, options: RequestInit): Promise<unknown> {
       contour_source: "manual_control_points",
     };
     measured.warnings.push(...image.quality.warnings);
+    let summary =
+      "Calibrated projected 2D dimensions recorded from manually placed contour.";
+    if (proposal) {
+      const unchanged = measured.contour.every(
+        (point, index) =>
+          Math.hypot(
+            point.x - proposal.points[index].x,
+            point.y - proposal.points[index].y,
+          ) <=
+          0.01 + 1e-9,
+      );
+      measured.contour_source = unchanged
+        ? "automatic_human_reviewed"
+        : "automatic_human_adjusted";
+      measured.contour_proposal_id = proposal.id;
+      measured.contour_proposal = structuredClone(proposal);
+      measured.warnings.push(
+        "Automatic contour is an experimental image-derived proposal; human review does not establish validated segmentation accuracy or physical fit.",
+      );
+      summary = unchanged
+        ? "Calibrated projected 2D dimensions recorded from a human-reviewed automatic contour proposal."
+        : "Calibrated projected 2D dimensions recorded from a human-adjusted automatic contour proposal.";
+    }
     session.measurement = measured;
     session.contour = measured.contour;
     session.calibration = measured.calibration;
     invalidateReview(session);
-    version(
-      session,
-      "measurement",
-      "Calibrated projected 2D dimensions recorded from manually placed contour.",
-      { image_id: image.id, measurement: measured },
-    );
+    version(session, "measurement", summary, {
+      image_id: image.id,
+      measurement: measured,
+    });
     await saveSession(session);
     return measured;
   }
