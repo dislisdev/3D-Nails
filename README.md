@@ -1,5 +1,7 @@
 # NAILFORM LAB
 
+**Ξεκίνα εδώ στα ελληνικά:** [Οδηγός έργου — ιδέα, τεχνολογία, λειτουργίες, δοκιμές και επόμενα βήματα](PROJECT_GUIDE.el.md).
+
 Research MVP for a single nail: guided photographs → calibrated projected 2D contour → explicit manual curvature inputs → inspectable CAD shell → actual STL/STEP export → professional observations.
 
 This is a **local research instrument**. Generated objects are **non-wearable laboratory prototypes**. It does not establish physical fit, surface reconstruction accuracy, material suitability, or approval for nail/skin contact.
@@ -72,6 +74,7 @@ See [VALIDATION_RESULTS.md](VALIDATION_RESULTS.md) for actual run outcomes, [MEA
 
 ## Project record
 
+- [PROJECT_GUIDE.el.md](PROJECT_GUIDE.el.md): Greek overview of the idea, current technology, implemented workflow, evidence, limitations and next experiments; includes a complete documentation index.
 - [ARCHITECTURE.md](ARCHITECTURE.md): decisions, module boundaries and V1 asset compatibility.
 - [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md): implementation sequence and acceptance criteria.
 - [RESEARCH_LOG.md](RESEARCH_LOG.md): observed evidence, hypotheses and next controlled experiment.
