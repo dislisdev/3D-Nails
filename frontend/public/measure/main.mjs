@@ -1,17 +1,22 @@
-// Πειραματικό · σύνδεση οθόνης και συσκευής · WebApp 0.1.0.
+// Πειραματικό · σύνδεση οθόνης και συσκευής · WebApp 0.2.0.
 import { createEvaluationPair, createMeasurement, prepareScale } from './core/measurement.mjs';
-import { defaultThreshold, findObjects, matchingRegion } from './core/image.mjs';
-import { clamp, fractionAtPoint } from './core/geometry.mjs';
-import { INPUT_MESSAGES, MeasurementInputError } from './core/catalog.mjs';
+import { defaultThreshold } from './core/image.mjs';
+import { alternativeIndex } from './core/seed-contour.mjs';
+import { clamp, fractionAtPoint, pointInOutline } from './core/geometry.mjs';
+import { APP_NAME, INPUT_MESSAGES, MeasurementInputError } from './core/catalog.mjs';
 import { cameraErrorKey, readFileImage, readFrame, requestCamera, stopMedia } from './ui/acquisition.mjs';
 import { checkEvaluationChoices, inputFrom, measurementFields, selectionFrom, sourceFrom } from './ui/fields.mjs';
-import { initialState, messages, pickedRegion } from './ui/model.mjs';
+import { initialState, messages, pickedRegion, targetFor } from './ui/model.mjs';
 import { number, overlayContents, pageContent } from './ui/templates.mjs';
+import { openContourReader, waitForPaint } from './ui/contour-reader.mjs';
+import { bindViewport, canZoomIn, canZoomOut, cursorAt, drawRaster, fitCursor, viewBoxFor, viewportFor, zoomStep, zoomViewport } from './ui/viewport.mjs';
 
 const root = document.getElementById('app');
 const live = document.getElementById('live');
 let state = initialState();
 let raster = null;
+let contourReader = null;
+let viewerObserver = null;
 let downloadUrl = null;
 let picker = null;
 let cameraStream = null;
@@ -37,29 +42,60 @@ function render({ focus, open } = {}) {
   const canvas = root.querySelector('#raster');
   const video = root.querySelector('#camera-preview');
   if (video && oldVideo && cameraStream === oldVideo.srcObject && cameraStream) video.replaceWith(oldVideo);
+  if (canvas && raster && oldCanvas?.dataset.identity === raster.info.image_id) canvas.replaceWith(oldCanvas);
   if (canvas && raster) {
-    if (oldCanvas?.dataset.identity === raster.info.image_id) canvas.replaceWith(oldCanvas);
-    else {
-      canvas.dataset.identity = raster.info.image_id;
-      canvas.getContext('2d').drawImage(raster.canvas, 0, 0);
-    }
+    root.querySelector('#raster').dataset.identity = raster.info.image_id;
+    repaintViewer({ raster: true });
   }
+  viewerObserver?.disconnect();
+  const stage = root.querySelector('#image-stage');
+  if (viewerObserver && stage) viewerObserver.observe(stage);
   if (focus) {
     const active = document.getElementById(focus) ?? root.querySelector('[name="' + focus + '"]:enabled') ?? root.querySelector('#stage-title');
     active?.focus();
   }
 }
 
+function tokenSize(name) {
+  return Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
+}
+
+function repaintViewer({ raster: updateRaster = false } = {}) {
+  const stage = root.querySelector('#image-stage');
+  if (!stage || !state.image) return;
+  const svg = stage.querySelector('#image-overlay');
+  const view = viewportFor(state);
+  const box = stage.getBoundingClientRect();
+  if (!box.width || !box.height) return;
+  const units = [view.width / box.width, view.height / box.height];
+  svg.setAttribute('viewBox', viewBoxFor(view));
+  const focused = document.activeElement?.dataset.handle;
+  svg.innerHTML = overlayContents(state, {
+    marker: units.map(unit => unit * tokenSize('--size-arc-handle-visible')),
+    hit: units.map(unit => unit * tokenSize('--size-arc-handle-touch')),
+  });
+  if (focused) svg.querySelector('[data-handle="' + focused + '"]')?.focus({ preventScroll: true });
+  if (updateRaster && raster) drawRaster(stage.querySelector('#raster'), raster.canvas, state);
+  const more = root.querySelector('[data-action="zoom-in"]');
+  const less = root.querySelector('[data-action="zoom-out"]');
+  const all = root.querySelector('[data-action="zoom-fit"]');
+  for (const [button, unavailable] of [[more, !canZoomIn(state)], [less, !canZoomOut(state)], [all, !canZoomOut(state)]]) {
+    button?.setAttribute('aria-disabled', String(unavailable));
+  }
+}
+
 function go(step) {
   state.step = step;
+  state.draft = null;
+  state.cursor = null;
   state.notice = null;
   state.pick = null;
   render({ focus: 'stage-title' });
 }
 
-function setNotice(key, tone = 'error', { text = messages[key], field, open, focus, renderNow = true } = {}) {
+function setNotice(key, tone = 'error', { text = messages[key], field, open, focus } = {}) {
   state.notice = { key, text, tone, field };
-  if (renderNow) render({ open, focus: focus ?? field ?? 'stage-title' });
+  render({ open, focus: focus ?? field ?? 'stage-title' });
   if (tone !== 'error') announce(text);
 }
 
@@ -67,10 +103,9 @@ function showError(error, fallback, focus) {
   if (!(error instanceof MeasurementInputError)) return setNotice(fallback, 'error', { focus });
   let field = error.code === 'coin' ? 'coinId' : measurementFields[error.code];
   if (error.code === 'outline') field = state.step === 'scale' ? 'referenceX' : 'targetX';
-  const open = field === 'referenceX' ? 'reference-geometry'
-    : field === 'targetX' ? 'target-geometry'
-      : field === 'cameraDistance' ? 'view-geometry'
-      : field?.startsWith('control') ? 'evaluation-control' : undefined;
+  const topFields = ['coinId', 'targetCoinId', 'targetId', 'referenceId'];
+  const open = field?.startsWith('control') ? 'evaluation-control'
+    : field && !topFields.includes(field) ? state.step + '-settings' : undefined;
   setNotice(error.code, 'error', { text: error.message, field, open, focus: field ?? focus });
 }
 
@@ -82,6 +117,8 @@ function releaseDownload() {
 function reset() {
   stopCamera();
   releaseDownload();
+  contourReader?.close();
+  contourReader = null;
   raster = null;
   state = initialState();
   root.replaceChildren();
@@ -89,38 +126,41 @@ function reset() {
   announce('Η εικόνα αφαιρέθηκε από τη σελίδα.');
 }
 
-function candidateNotice() {
-  const key = state.regions.length === 0 ? 'noObjects' : state.regions.length === 1 ? 'oneObject' : null;
-  state.notice = key ? { key, text: messages[key], tone: 'error' } : null;
-}
-
 function newImage(frame, name, origin) {
-  const { provenance, generatorId, generatorVersion, purpose } = state.form;
+  const previous = state.form;
   releaseDownload();
+  contourReader?.close();
   raster = frame;
+  contourReader = openContourReader(frame);
   state = initialState();
-  state.form.purpose = purpose;
-  if (origin !== 'camera') Object.assign(state.form, { provenance, generatorId, generatorVersion });
-  state.image = { info: frame.info, name, origin };
-  state.threshold = defaultThreshold(frame.gray);
-  state.form.threshold = state.threshold;
-  state.regions = findObjects(frame.gray, frame.info.width_px, frame.info.height_px, state.threshold);
-  candidateNotice();
-  render({ focus: 'stage-title' });
-  if (!state.notice) announce('Η εικόνα άνοιξε. Μπορείς να ορίσεις κλίμακα.');
+  state.form.purpose = previous.purpose;
+  if (origin === 'file') {
+    const { provenance, generatorId, generatorVersion } = previous;
+    Object.assign(state.form, { provenance, generatorId, generatorVersion });
+  }
+  state.image = { info: frame.info, name, origin, original: frame.original, ratio: frame.ratio };
+  go('scale');
+  announce('Η εικόνα άνοιξε. Άγγιξε το κέρμα αναφοράς.');
 }
 
-async function loadFile(file) {
-  if (!file) return setNotice('fileCancel', 'info', { focus: 'choose-file' });
-  state.busy = 'file';
+async function loadFile(file, origin) {
+  const originButton = origin === 'photo' ? 'take-photo' : 'choose-file';
+  if (!file) return setNotice(origin === 'photo' ? 'cameraCancel' : 'fileCancel', 'info', { focus: originButton });
+  try {
+    if (origin === 'file') sourceFrom(state.form);
+  } catch (error) {
+    showError(error, 'fileRead', 'choose-file');
+    return;
+  }
+  state.busy = origin === 'photo' ? 'photo' : 'file';
   state.notice = null;
-  render({ focus: 'choose-file' });
+  render({ focus: originButton });
   try {
     const image = await readFileImage(file);
-    newImage(image, file.name, 'file');
+    newImage(image, file.name, origin);
   } catch (error) {
     state.busy = null;
-    showError(error, 'fileRead', 'choose-file');
+    showError(error, 'fileRead', originButton);
   }
 }
 
@@ -129,6 +169,7 @@ function stopCamera() {
   stopMedia(cameraStream);
   cameraStream = null;
   state.camera = null;
+  state.cameraSize = null;
   if (state.busy === 'capture') state.busy = null;
 }
 
@@ -162,6 +203,13 @@ async function openCamera() {
     video.srcObject = stream;
     await video.play();
     if (!current()) return;
+    state.cameraSize = [video.videoWidth, video.videoHeight];
+    video.addEventListener('resize', () => {
+      if (!current()) return;
+      state.cameraSize = [video.videoWidth, video.videoHeight];
+      const dimensions = root.querySelector('#camera-resolution');
+      if (dimensions) dimensions.textContent = state.cameraSize.map(value => number(value, 0)).join(' × ') + ' px';
+    });
     state.camera = 'ready';
     render({ focus: 'capture-camera' });
     announce('Η προεπισκόπηση της κάμερας είναι έτοιμη.');
@@ -194,63 +242,87 @@ async function captureCamera() {
   }
 }
 
-const waitForPaint = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-
-async function applyThreshold() {
-  if (!raster) return;
-  const previousReference = pickedRegion(state, 'referenceId'), previousTarget = pickedRegion(state, 'targetId');
-  state.busy = 'threshold';
+function startSeedAgain() {
+  const prefix = state.step === 'scale' ? 'reference' : 'target';
+  const key = prefix + 'Id';
+  state.draft = null;
+  state.form[key] = '';
+  state.form[prefix + 'X'] = state.form[prefix + 'Y'] = '';
+  state.regions = state.regions.filter(region => region.id !== key);
   state.notice = null;
-  render({ focus: 'apply-threshold' });
-  await waitForPaint();
+  render({ focus: 'image-stage' });
+}
+
+async function findEdge(seed, candidate) {
+  const reference = pickedRegion(state, 'referenceId');
+  const selectingTarget = state.step === 'contour';
+  if (selectingTarget && reference && pointInOutline(reference.points, seed)) {
+    state.draft = null;
+    setNotice('sameObject');
+    return;
+  }
+  state.cursor = seed;
+  const previous = candidate === undefined ? null : state.draft;
+  state.draft = previous;
+  state.busy = 'edge';
+  state.notice = null;
+  render();
+  announce('Ψάχνω την ακμή.');
   try {
-    const { gray, info } = raster;
-    const threshold = Number(state.form.threshold);
-    const regions = findObjects(gray, info.width_px, info.height_px, threshold);
-    const reference = matchingRegion(previousReference, regions);
-    const target = matchingRegion(previousTarget, regions);
-    state.regions = regions;
-    state.threshold = threshold;
-    state.form.referenceId = reference ? String(reference.id) : '';
-    state.form.targetId = target && target !== reference ? String(target.id) : '';
-    if (!state.form.referenceId) state.form.referenceX = state.form.referenceY = '';
-    if (!state.form.targetId) state.form.targetX = state.form.targetY = '';
-    state.results = [];
-    state.scale = null;
+    const threshold = state.form.manualThreshold ? Number(state.form.threshold) : undefined;
+    const result = await contourReader.at(seed, { index: candidate, threshold });
     state.busy = null;
-    if (regions.length < 2) state.step = 'image';
-    else if (state.step === 'contour') {
-      try {
-        state.scale = prepareScale(inputFrom(state)).calibration;
-      } catch (error) {
-        state.step = 'scale';
-        showError(error, 'process', 'set-scale');
-        return;
-      }
+    state.draft = { ...result, seed };
+    if (result.ok && selectingTarget && reference && pointInOutline(result.region.points, reference.seed ?? reference.center)) {
+      state.draft = null;
+      setNotice('sameObject');
+    } else if (result.ok) {
+      render({ focus: 'confirm-seed' });
+      announce('Βρέθηκε περίγραμμα. Έλεγξέ το στην εικόνα.');
+    } else {
+      const reason = result.reason.trim().replace(/^[\p{Ll}]/u, char => char.toLocaleUpperCase('el')).replace(/\.$/, '');
+      setNotice('edge', 'error', { text: reason + '. ' + messages.edge });
     }
-    candidateNotice();
-    render({ focus: state.step === 'contour' ? 'apply-threshold' : 'stage-title' });
-    if (!state.notice) announce('Τα περιγράμματα ενημερώθηκαν με το νέο κατώφλι.');
   } catch {
     state.busy = null;
-    setNotice('process');
+    setNotice('edge');
   }
 }
 
 function setScale() {
   try {
     const input = inputFrom(state);
+    if (!input.referenceRegion) throw new MeasurementInputError('reference', 'Άγγιξε το κέρμα και επιβεβαίωσε το περίγραμμά του.');
     state.scale = prepareScale(input).calibration;
-    if (!pickedRegion(state, 'targetId') || state.form.targetId === state.form.referenceId) {
-      const other = state.regions.filter(region => region !== input.referenceRegion);
-      state.form.targetId = other.length === 1 ? String(other[0].id) : '';
-    }
     state.results = [];
     go('contour');
-    announce('Η κλίμακα ορίστηκε. Διάλεξε το περίγραμμα.');
+    announce(state.scale.reference_length_px < 300 ? messages.referenceResolution : 'Η κλίμακα ορίστηκε. Άγγιξε το αντικείμενο που μετράς.');
   } catch (error) {
     showError(error, 'process', 'set-scale');
   }
+}
+
+function confirmSeed() {
+  if (!state.draft?.region) return;
+  const isReference = state.step === 'scale';
+  const key = isReference ? 'referenceId' : 'targetId';
+  state.regions = [...state.regions.filter(region => region.id !== key), { ...state.draft.region, id: key }];
+  state.form[key] = key;
+  state.draft = null;
+  state.notice = null;
+  if (state.form.purpose === 'evaluation') {
+    render({ focus: isReference ? 'set-scale' : 'measure' });
+    announce('Το περίγραμμα κρατήθηκε.');
+  } else if (isReference && state.form.dimensionKind === 'coin' && !state.form.coinId) {
+    render({ focus: 'coinId' });
+    announce('Διάλεξε ποιο κέρμα άγγιξες.');
+  } else if (isReference) setScale();
+  else void measure();
+}
+
+function switchCandidate(direction) {
+  const index = alternativeIndex(state.draft, direction);
+  if (index >= 0) void findEdge(state.draft.seed, index);
 }
 
 async function measure() {
@@ -342,7 +414,9 @@ function chooseCoin(option) {
   const name = picker.trigger.dataset.coinTrigger;
   state.form[name] = option.dataset.coin;
   state.notice = null;
-  render({ focus: name });
+  if (name === 'coinId' && state.step === 'scale' && !state.draft && state.form.purpose === 'measurement'
+    && pickedRegion(state, 'referenceId')) setScale();
+  else render({ focus: name });
 }
 
 const normalize = value => value.toLocaleLowerCase('el').normalize('NFD').replace(/\p{M}/gu, '');
@@ -382,21 +456,31 @@ function pickerKey(event) {
   event.preventDefault();
 }
 
-function pickPoint(event, stage) {
-  if (!state.pick || !state.image) return;
-  const { width_px: width, height_px: height } = state.image.info;
-  const box = stage.getBoundingClientRect();
-  const x = clamp((event.clientX - box.left) * width / box.width - 0.5, 0, width - 1);
-  const y = clamp((event.clientY - box.top) * height / box.height - 0.5, 0, height - 1);
+function adjustArc(name, point) {
+  const target = targetFor(state);
+  if (!target) return;
+  state.form[name] = Math.round(10000 * fractionAtPoint(target.points, point)) / 100;
+  const field = root.querySelector('#' + name);
+  if (field) {
+    field.value = state.form[name];
+    const readout = root.querySelector('[data-reading="' + name + '"]');
+    readout.textContent = number(state.form[name], 2) + readout.dataset.suffix;
+  }
+  repaintViewer();
+}
+
+function pickPoint(point) {
+  if (!state.image || state.busy) return;
   const pick = state.pick;
-  if (['arcStart', 'arcEnd', 'anchorPercent'].includes(pick)) {
-    const target = pickedRegion(state, 'targetId');
-    if (!target) return;
-    state.form[pick] = Math.round(10000 * fractionAtPoint(target.points, [x, y])) / 100;
-  } else {
+  if (!pick) {
+    if (['scale', 'contour'].includes(state.step)) void findEdge(point);
+    return;
+  }
+  if (['arcStart', 'arcEnd', 'anchorPercent'].includes(pick)) adjustArc(pick, point);
+  else {
     const prefix = pick.endsWith('Center') ? pick.slice(0, -'Center'.length) : pick;
-    state.form[prefix + 'X'] = String(Math.round(x * 100) / 100);
-    state.form[prefix + 'Y'] = String(Math.round(y * 100) / 100);
+    state.form[prefix + 'X'] = String(Math.round(point[0] * 100) / 100);
+    state.form[prefix + 'Y'] = String(Math.round(point[1] * 100) / 100);
   }
   state.pick = null;
   state.notice = null;
@@ -404,21 +488,34 @@ function pickPoint(event, stage) {
   announce('Το σημείο σημειώθηκε στην εικόνα.');
 }
 
+function updateZoom(direction, focus) {
+  if (direction === 0) state.viewport = null;
+  else zoomStep(state, direction);
+  fitCursor(state);
+  repaintViewer({ raster: true });
+  if (focus) root.querySelector('#image-stage')?.focus({ preventScroll: true });
+}
+
 const actions = {
   file: () => root.querySelector('#image-file').click(),
+  photo: () => root.querySelector('#photo-file').click(),
+  'confirm-seed': confirmSeed,
+  'retry-seed': startSeedAgain,
+  'seed-larger': () => switchCandidate(1),
+  'seed-smaller': () => switchCandidate(-1),
+  'zoom-in': () => updateZoom(1),
+  'zoom-out': () => updateZoom(-1),
+  'zoom-fit': () => updateZoom(0),
+  'suggest-threshold': () => {
+    state.form.threshold = defaultThreshold(raster.gray);
+    state.draft = null;
+    render({ focus: 'threshold' });
+  },
   reset,
   'open-camera': openCamera,
   'cancel-camera': cancelCamera,
   'capture-camera': captureCamera,
-  'to-scale': () => {
-    try {
-      sourceFrom(state.form);
-      if (state.regions.length >= 2) go('scale');
-    } catch (error) {
-      showError(error, 'fileRead');
-    }
-  },
-  threshold: applyThreshold,
+  'to-scale': () => go('scale'),
   'back-image': () => go('image'),
   'back-scale': () => go('scale'),
   'back-contour': () => { state.results = []; go('contour'); },
@@ -447,19 +544,17 @@ root.addEventListener('click', event => {
     return;
   }
   if (picker && !picker.list.contains(event.target)) closePicker();
-  const stage = event.target.closest('#image-stage');
-  if (stage) pickPoint(event, stage);
   const action = event.target.closest('[data-action]')?.dataset.action;
   if (action?.startsWith('pick-')) {
     const pick = action.slice(5);
-    if ((pick.startsWith('arc') || pick === 'anchorPercent') && !pickedRegion(state, 'targetId')) {
+    if ((pick.startsWith('arc') || pick === 'anchorPercent') && !targetFor(state)) {
       setNotice('target', 'error', { text: INPUT_MESSAGES.target, field: 'targetId' });
       return;
     }
     state.pick = state.pick === pick ? null : pick;
     render({ focus: action });
     announce(state.pick ? 'Δείξε το σημείο πάνω στην εικόνα ή χρησιμοποίησε τη φόρμα.' : 'Η σήμανση ακυρώθηκε.');
-  } else if (action) void actions[action]?.();
+  } else if (action && event.target.closest('[data-action]').getAttribute('aria-disabled') !== 'true') void actions[action]?.();
 });
 
 root.addEventListener('input', event => {
@@ -469,30 +564,27 @@ root.addEventListener('input', event => {
   state.form[field.name] = field.type === 'checkbox' ? field.checked : field.value;
   if (field.type !== 'range') {
     if (/^(reference|target|controlStart|controlEnd)[XY]$/.test(field.name)) {
-      const overlay = root.querySelector('#image-overlay');
-      if (overlay) overlay.innerHTML = overlayContents(state);
+      repaintViewer();
     }
     return;
   }
   const readout = root.querySelector('[data-reading="' + field.name + '"]');
-  readout.textContent = number(Number(field.value), 2) + readout.dataset.suffix;
-  if (field.name !== 'threshold') root.querySelector('#image-overlay').innerHTML = overlayContents(state);
+  readout.textContent = number(Number(field.value), field.name === 'threshold' ? 0 : 2) + readout.dataset.suffix;
+  if (field.name !== 'threshold') repaintViewer();
 });
 
-const renderOnChange = new Set(['provenance', 'dimensionKind', 'referenceId', 'targetId', 'referenceEdge', 'targetEdge',
+const renderOnChange = new Set(['provenance', 'dimensionKind', 'manualThreshold', 'threshold', 'referenceEdge', 'targetEdge',
   'selectionMode', 'materialInside', 'purpose', 'evaluationScope', 'resultChoice', 'controlKind']);
 root.addEventListener('change', event => {
   const field = event.target;
-  if (field.id === 'image-file') {
-    void loadFile(field.files[0]);
+  if (['image-file', 'photo-file'].includes(field.id)) {
+    void loadFile(field.files[0], field.id === 'photo-file' ? 'photo' : 'file');
     return;
   }
   if (state.busy || !renderOnChange.has(field.name)) return;
   state.pick = null;
   state.notice = null;
-  if (field.name === 'referenceId' && state.form.targetId === field.value) state.form.targetId = '';
-  if (field.name === 'referenceId') state.form.referenceX = state.form.referenceY = '';
-  if (field.name === 'targetId') state.form.targetX = state.form.targetY = '';
+  if (['manualThreshold', 'threshold'].includes(field.name)) state.draft = null;
   if (field.name === 'purpose' && field.value === 'evaluation') {
     state.form.dimensionKind = 'coin';
   }
@@ -515,9 +607,50 @@ root.addEventListener('focusout', event => {
 });
 root.addEventListener('cancel', event => {
   if (event.target.id === 'image-file') setNotice('fileCancel', 'info', { focus: 'choose-file' });
+  if (event.target.id === 'photo-file') setNotice('cameraCancel', 'info', { focus: 'take-photo' });
 }, true);
+function viewerKey(event) {
+  const stage = event.target.closest('#image-stage');
+  if (!stage || state.busy) return;
+  const { key } = event;
+  const handle = event.target.dataset.handle;
+  const offsets = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+  const move = offsets[key];
+  if (handle && (move || key === 'Home' || key === 'End')) {
+    const field = root.querySelector('#' + handle);
+    if (field) {
+      const value = key === 'Home' ? 0 : key === 'End' ? 100
+        : clamp(Number(state.form[handle]) + (move[0] || -move[1]) * (event.shiftKey ? 5 : 1), 0, 100);
+      field.value = value;
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  } else if (move) {
+    const view = viewportFor(state);
+    const step = (event.shiftKey ? 1 : 0.15) * view.width / Math.max(1, stage.clientWidth) * tokenSize('--size-arc-handle-touch');
+    if (event.altKey) {
+      zoomViewport(state, view.zoom, [0.5, 0.5], [0.5 - move[0] * 0.15, 0.5 - move[1] * 0.15]);
+      fitCursor(state);
+      repaintViewer({ raster: true });
+    } else {
+      state.cursor = cursorAt(state).map((coordinate, i) => coordinate + step * move[i]);
+      fitCursor(state);
+      repaintViewer();
+    }
+  } else if (key === 'Enter' || key === ' ') {
+    if (handle) {
+      state.pick = handle;
+      render({ focus: 'image-stage' });
+    } else pickPoint(cursorAt(state));
+  } else if (key === '+' || key === '=') updateZoom(1, true);
+  else if (key === '-') updateZoom(-1, true);
+  else if (key === '0') updateZoom(0, true);
+  else return;
+  event.preventDefault();
+}
+
 root.addEventListener('keydown', event => {
   pickerKey(event);
+  if (!event.defaultPrevented) viewerKey(event);
   if (!event.defaultPrevented && event.key === 'Escape' && state.camera) {
     event.preventDefault();
     cancelCamera();
@@ -542,4 +675,13 @@ window.addEventListener('pagehide', () => {
 window.addEventListener('pageshow', event => {
   if (event.persisted) render();
 });
+if (typeof ResizeObserver === 'function') viewerObserver = new ResizeObserver(() => repaintViewer());
+bindViewport(root, {
+  getState: () => state, select: pickPoint, updateHandle: adjustArc,
+  repaint: repaintViewer, tapTolerance: () => tokenSize('--size-gesture-slop'),
+});
+document.title = APP_NAME;
 render();
+if (window.isSecureContext && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.register(new URL('./sw.mjs', import.meta.url), { type: 'module', updateViaCache: 'none' }).catch(() => {});
+}

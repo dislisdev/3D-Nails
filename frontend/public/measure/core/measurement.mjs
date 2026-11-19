@@ -1,4 +1,4 @@
-// Πειραματικό · σύνθεση αρχείου συμβολαίου 0.3 · WebApp 0.1.0.
+// Πειραματικό · σύνθεση αρχείου συμβολαίου 0.3 · WebApp 0.2.0.
 import { CHECKER_VERSION, checkMeasurement, exporterK5, rimSystematics, sameOriginalContour } from '../contract/check_measurement.mjs';
 import * as taubin from '../methods/taubin.mjs';
 import * as triplet from '../methods/triplet-median.mjs';
@@ -91,7 +91,7 @@ export function prepareScale(input) {
   const reference = makeReference({ image, region: referenceRegion, dimension: referenceDimension,
     configuration: referenceOutline, view, provenance });
   const calibration = makeScale(reference, view);
-  const control = purpose === 'evaluation' ? makeControl({ control: input.control, image, provenance, reference }) : null;
+  const control = purpose === 'evaluation' || input.control ? makeControl({ control: input.control, image, provenance, reference }) : null;
   return { view, reference, calibration, control };
 }
 
@@ -122,7 +122,7 @@ async function prepare(input) {
   const controlSegment = control ? { reference_id: 'control-' + await digestInputs([image.image_id, control.endpoints_px]), ...control } : null;
   return {
     originalId, calibration: { image_id: image.image_id, reference_id: referenceId, ...calibration,
-      control_segment: controlSegment, independent_check: control ? 'provided' : 'absent' },
+      control_segment: controlSegment, independent_check: controlSegment ? 'provided' : 'absent' },
     groupId: 'group-' + await digestInputs(base), generator, view: { ...view,
       reference_outline: reference.outline, contour_outline: contourOutline },
   };

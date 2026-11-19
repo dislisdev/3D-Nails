@@ -12,6 +12,7 @@
 
 body {
   margin: 0;
+  color: var(--color-text-primary);
 }
 
 :where(h1, h2, h3, h4, p, figure, dl, dd, ol, ul, fieldset, pre) {
@@ -56,13 +57,6 @@ body {
   justify-content: space-between;
   gap: var(--space-2) var(--space-4);
   padding-block: var(--space-3);
-}
-
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-weight: var(--weight-semibold);
 }
 
 .icon {
@@ -198,6 +192,32 @@ h3 {
   padding: var(--space-3);
 }
 
+.workbench[data-inline-viewer] {
+  max-inline-size: calc(var(--size-viewer) + var(--size-panel) / 2);
+}
+
+.panel .viewer {
+  padding: 0;
+  border: 0;
+}
+
+.capture-guide {
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.capture-guide li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.capture-guide .icon {
+  color: var(--color-text-link);
+}
+
 .viewer-head {
   display: flex;
   justify-content: space-between;
@@ -241,7 +261,7 @@ h3 {
   background: var(--color-overlay-halo);
 }
 
-.image-stage canvas, .image-stage img, .camera-preview {
+.image-stage canvas, .image-stage img, .raster-demo, .camera-preview {
   display: block;
   inline-size: 100%;
   block-size: auto;
@@ -249,6 +269,27 @@ h3 {
 
 .image-stage[data-pick] {
   cursor: crosshair;
+}
+
+#image-stage {
+  touch-action: none;
+}
+
+#image-stage[data-interactive] {
+  cursor: crosshair;
+}
+
+#image-stage[aria-busy="true"] {
+  cursor: progress;
+}
+
+.crosshair {
+  visibility: hidden;
+}
+
+#image-stage:focus-visible .crosshair,
+#image-stage[data-pick]:focus-within .crosshair {
+  visibility: visible;
 }
 
 .overlay {
@@ -260,7 +301,7 @@ h3 {
   pointer-events: none;
 }
 
-.overlay :is(path, circle, line) {
+.overlay :is(path, ellipse, line) {
   fill: none;
   stroke-linejoin: round;
   stroke-linecap: round;
@@ -292,17 +333,25 @@ h3 {
   fill: var(--color-overlay-halo);
 }
 
-.overlay text {
-  fill: var(--color-overlay-ink);
-  font-size: var(--text-xl);
-  font-weight: var(--weight-semibold);
-  text-anchor: middle;
-  dominant-baseline: central;
-  paint-order: stroke;
-  stroke: var(--color-overlay-halo);
+.handle-hit {
+  fill: transparent;
+  pointer-events: all;
+  cursor: grab;
+}
+
+.arc-handle:is(:hover, :focus-visible, :active) .marker {
+  stroke: var(--color-overlay-ink);
   stroke-width: var(--size-stroke-halo);
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
+}
+
+.arc-handle:focus-visible .handle-hit {
+  fill: var(--color-overlay-halo);
+  fill-opacity: var(--opacity-disabled);
+}
+
+.seed-progress {
+  color: var(--color-text-primary);
+  font-weight: var(--weight-semibold);
 }
 
 .image-caption {
@@ -438,7 +487,7 @@ button[aria-pressed="true"], button[aria-expanded="true"] {
   border-color: var(--color-focus-ring);
 }
 
-button:disabled, input:disabled, .choice:has(input:disabled) {
+button:disabled, button[aria-disabled="true"], input:disabled, .choice:has(input:disabled) {
   opacity: var(--opacity-disabled);
   pointer-events: none;
 }
@@ -447,7 +496,7 @@ button[aria-busy="true"] {
   cursor: progress;
 }
 
-:where(button, input, summary, pre, [role="listbox"], h2):focus-visible,
+:where(button, input, summary, pre, [role="listbox"], .image-stage, h2):focus-visible,
 .choice:has(input:focus-visible) {
   outline: var(--size-stroke-focus) solid var(--color-focus-ring);
   outline-offset: var(--size-stroke-focus);
@@ -568,6 +617,10 @@ input {
   padding: var(--space-3);
 }
 
+.details:not([open]) > :not(summary) {
+  display: none;
+}
+
 .coin-picker {
   display: grid;
   min-inline-size: 0;
@@ -636,6 +689,10 @@ input {
 .radius .unit {
   font-size: var(--text-xl);
   font-weight: var(--weight-medium);
+}
+
+.uncertainty-note {
+  margin-block: var(--space-2);
 }
 
 .json {

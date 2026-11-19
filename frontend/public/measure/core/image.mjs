@@ -1,10 +1,9 @@
-// Πειραματικό · εκτίμηση ορίου με παρεμβολή στο κατώφλι · WebApp 0.1.0.
-import { areaTwice, polygonCenter } from './geometry.mjs';
+// Πειραματικό · εκτίμηση ορίου με παρεμβολή στο κατώφλι · WebApp 0.2.0.
+import { areaTwice, polygonCenter, uniformContour } from './geometry.mjs';
 
 export const MAX_PIXELS = 16_000_000;
 const MIN_AREA = 9;
 const MAX_REGIONS = 24;
-const MAX_VERTICES = 1024;
 
 export function grayscale(rgba, width, height) {
   const count = width * height;
@@ -133,8 +132,7 @@ function boundary(gray, labels, width, region, iso) {
       outer = area >= 0 ? loop : [loop[0], ...loop.slice(1).reverse()];
     }
   }
-  if (outer.length <= MAX_VERTICES) return outer;
-  return Array.from({ length: MAX_VERTICES }, (_, i) => outer[Math.floor(i * outer.length / MAX_VERTICES)]);
+  return uniformContour(outer);
 }
 
 export function findObjects(gray, width, height, threshold) {
@@ -146,22 +144,4 @@ export function findObjects(gray, width, height, threshold) {
     const points = boundary(gray, labels, width, region, threshold + 0.5);
     return points.length ? [{ ...region, points, center: polygonCenter(points) }] : [];
   });
-}
-
-export function matchingRegion(previous, regions) {
-  if (!previous) return null;
-  const [left, top, right, bottom] = previous.bounds;
-  const area = (right - left + 1) * (bottom - top + 1);
-  let best = null, bestScore = 0.5;
-  for (const region of regions) {
-    const [a, b, c, d] = region.bounds;
-    const overlap = Math.max(0, Math.min(right, c) - Math.max(left, a) + 1)
-      * Math.max(0, Math.min(bottom, d) - Math.max(top, b) + 1);
-    const score = overlap / (area + (c - a + 1) * (d - b + 1) - overlap);
-    if (score > bestScore) {
-      best = region;
-      bestScore = score;
-    }
-  }
-  return best;
 }

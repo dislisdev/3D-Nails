@@ -1,6 +1,6 @@
-// Πειραματικό · κλίμακα κατά το συμβόλαιο 0.3 · WebApp 0.1.0.
+// Πειραματικό · κλίμακα κατά το συμβόλαιο 0.3 · WebApp 0.2.0.
 import { fitReference, referenceDiameterPx, rimParallaxPx, rimSystematics } from '../contract/check_measurement.mjs';
-import { distance, imageCenter, inImage, midpoint, wrapDelta } from './geometry.mjs';
+import { distance, imageCenter, inImage, midpoint, pointInOutline, wrapDelta } from './geometry.mjs';
 import { INPUT_MESSAGES, MeasurementInputError } from './catalog.mjs';
 
 export const PROFILE = Object.freeze({
@@ -140,8 +140,11 @@ export function makeScale(reference, geometry) {
 
 export function makeControl({ control, image, provenance, reference }) {
   const endpoints = control?.endpoints;
-  if (!control?.independent || !endpoints?.every(p => inImage(p, image)) || endpoints.length !== 2) {
-    fail('control', 'Η αξιολόγηση χρειάζεται δεύτερο γνωστό μήκος. Σημείωσε δύο άκρα και δήλωσε ότι είναι ανεξάρτητο και στο ίδιο επίπεδο με την αναφορά.');
+  if (endpoints?.length !== 2 || !endpoints.every(p => inImage(p, image))) {
+    fail('control', 'Η αξιολόγηση χρειάζεται δεύτερο γνωστό μήκος. Σημείωσε δύο άκρα σε άλλο αντικείμενο, στο ύψος του χείλους της αναφοράς.');
+  }
+  if (endpoints.some(point => pointInOutline(reference.fields.reference_circle.points_px, point, 3))) {
+    fail('control-independent', 'Το δεύτερο μήκος χρειάζεται άλλο αντικείμενο. Σημείωσε δύο άκρα σε χωριστό χάρακα ή τρίτο κέρμα, μακριά από το κέρμα αναφοράς.');
   }
   const circular = control.kind === 'circle';
   if (!['circle', 'segment'].includes(control.kind)
@@ -156,22 +159,6 @@ export function makeControl({ control, image, provenance, reference }) {
   }
   const u0 = reference.fields.reference_scale_uncertainty_mm_per_px;
   if (u0 === null) fail('uncertainty-px', 'Η αβεβαιότητα της διαμέτρου αναφοράς είναι πολύ μεγάλη για ανεξάρτητο έλεγχο. Χρησιμοποίησε καθαρότερη λήψη ή μεγαλύτερη αναφορά.');
-  const ellipse = reference.fields.reference_circle.ellipse_fit;
-  const center = midpoint(...endpoints);
-  const nearCenter = center.every((value, i) => Math.abs(value - ellipse.center_px[i])
-    <= 1e-7 + 1e-9 * Math.max(Math.abs(value), Math.abs(ellipse.center_px[i])));
-  if (nearCenter) {
-    const angle = (ellipse.angle_deg ?? 0) * Math.PI / 180;
-    const sin = Math.sin(angle), cos = Math.cos(angle);
-    const onReference = ([x, y]) => {
-      const dx = x - ellipse.center_px[0], dy = y - ellipse.center_px[1];
-      const radial = Math.hypot((dx * cos + dy * sin) / ellipse.semi_major_px,
-        (-dx * sin + dy * cos) / ellipse.semi_minor_px);
-      return Math.abs(radial - 1) <= 1e-9 + 1e-9 * Math.max(radial, 1);
-    };
-    if (endpoints.every(onReference)) fail('control-independent',
-      'Το δεύτερο μήκος επαναλαμβάνει τη διάμετρο της αναφοράς. Χρησιμοποίησε χωριστό χάρακα ή τρίτο κέρμα.');
-  }
   const s0 = reference.fields.reference_mm_per_px, s2 = control.lengthMm / p;
   const u2 = Math.hypot(control.uncertaintyMm / p, control.lengthMm * control.uncertaintyPx / (p * p));
   if (Math.abs(s2 - s0) > 2 * Math.hypot(u0, u2) + 1e-10 + 1e-9 * Math.max(Math.abs(s2), Math.abs(s0))) {

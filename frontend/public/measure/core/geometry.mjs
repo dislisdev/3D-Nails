@@ -1,4 +1,4 @@
-// Πειραματικό · γεωμετρία περιγράμματος · WebApp 0.1.0.
+// Πειραματικό · γεωμετρία περιγράμματος · WebApp 0.2.0.
 export const distance = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 export const comparePoint = (a, b) => a[0] - b[0] || a[1] - b[1];
 export const imageCenter = image => [(image.width_px - 1) / 2, (image.height_px - 1) / 2];
@@ -72,6 +72,26 @@ function positionAt(path, along) {
 export function pointAtFraction(points, fraction) {
   const path = walk(points);
   return positionAt(path, fraction * path.length).point;
+}
+
+export function uniformContour(points) {
+  if (points.length < 5) return points;
+  const path = walk(points);
+  const count = Math.min(1024, points.length, Math.max(5, Math.floor(path.length / 1.5)));
+  if (!(path.length > 0)) return [];
+  return Array.from({ length: count }, (_, i) => positionAt(path, i * path.length / count).point);
+}
+
+export function pointInOutline(points, probe, margin = 0) {
+  let inside = false;
+  const [x, y] = probe;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i], b = points[(i + 1) % points.length];
+    if ((a[1] > y) !== (b[1] > y) && x < a[0] + (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1])) inside = !inside;
+  }
+  if (inside) return true;
+  const nearest = project(walk(points), probe);
+  return nearest !== undefined && distance(nearest.point, probe) <= margin;
 }
 
 export function project(path, probe) {

@@ -1,5 +1,5 @@
-// Πειραματικό · μεταφορά των δηλώσεων της φόρμας · WebApp 0.1.0.
-import { COIN_SOURCE, INPUT_MESSAGES, MeasurementInputError, coinById } from '../core/catalog.mjs';
+// Πειραματικό · μεταφορά των δηλώσεων της φόρμας · WebApp 0.2.0.
+import { COIN_ASSUMPTIONS, COIN_SOURCE, INPUT_MESSAGES, MeasurementInputError, coinById } from '../core/catalog.mjs';
 import { outlineEdge, parseDecimal, pickedRegion } from './model.mjs';
 
 const geometryNames = ['cameraDistance', 'cameraUncertainty', 'referenceHeight',
@@ -9,7 +9,7 @@ export const measurementFields = {
   'uncertainty-px': 'referenceUncertaintyPx', source: 'referenceSource', reference: 'referenceId',
   'reference-center': 'referenceX', 'target-center': 'targetX', target: 'targetId',
   arc: 'arcStart', geometry: 'cameraDistance', control: 'controlStartX', 'control-mismatch': 'controlLength',
-  'control-independent': 'controlIndependent', 'evaluation-coins': 'targetCoinId',
+  'control-independent': 'controlStartX', 'evaluation-coins': 'targetCoinId',
 };
 export function sourceFrom(form) {
   if (form.provenance === 'object') return { provenance: 'αντικείμενο' };
@@ -41,11 +41,21 @@ export function inputFrom(state) {
   const coin = fromCoin ? coinById(form.coinId) : null;
   const declaration = form.referenceSource.trim();
   if (fromCoin && !coin) throw new MeasurementInputError('coin', 'Διάλεξε το κέρμα που φαίνεται στην αναφορά.');
+  const assumed = [
+    form.referenceUncertaintyMm.trim() ? null : 'γνωστής διαμέτρου',
+    form.referenceUncertaintyPx.trim() ? null : 'διαμέτρου στην εικόνα',
+  ].filter(Boolean);
+  const sourceParts = coin ? [COIN_SOURCE, coin.label, 'Ονομαστική διάμετρος από τον κατάλογο της ΕΚΤ'] : [];
+  if (coin && assumed.length) {
+    sourceParts.push('Αβεβαιότητες (' + assumed.join(', ') + ') από υπόθεση της εφαρμογής, δεν μετρήθηκαν');
+  }
+  if (declaration) sourceParts.push('Χειροκίνητη δήλωση ' + declaration);
+  else if (coin && assumed.length < 2) sourceParts.push('Οι τιμές που άλλαξαν δηλώθηκαν από τον χρήστη');
   const dimension = {
     diameter: coin?.diameter ?? parseDecimal(form.diameter),
-    uncertaintyMm: parseDecimal(form.referenceUncertaintyMm),
-    uncertaintyPx: parseDecimal(form.referenceUncertaintyPx),
-    source: declaration ? (coin ? COIN_SOURCE + ' · ' + coin.label + ' · Αβεβαιότητες από δήλωση: ' : 'Χειροκίνητη δήλωση: ') + declaration : '',
+    uncertaintyMm: parseDecimal(form.referenceUncertaintyMm) ?? (coin ? COIN_ASSUMPTIONS.uncertaintyMm : null),
+    uncertaintyPx: parseDecimal(form.referenceUncertaintyPx) ?? (coin ? COIN_ASSUMPTIONS.uncertaintyPx : null),
+    source: sourceParts.join(' · '),
   };
   const referenceOutline = outline(form, 'reference', coin?.thickness);
   if (evaluation && source.provenance === 'αντικείμενο' && referenceOutline.edge !== 'upper_rim' && !referenceOutline.center) {
@@ -55,7 +65,7 @@ export function inputFrom(state) {
   const control = evaluation ? {
     kind: form.controlKind, lengthMm: parseDecimal(form.controlLength),
     uncertaintyMm: parseDecimal(form.controlUncertaintyMm), uncertaintyPx: parseDecimal(form.controlUncertaintyPx),
-    source: form.controlSource.trim(), independent: form.controlIndependent,
+    source: form.controlSource.trim(),
     endpoints: [formPoint(form, 'controlStartX', 'controlStartY'), formPoint(form, 'controlEndX', 'controlEndY')],
   } : null;
   const geometry = Object.fromEntries(geometryNames.map(name => [name, parseDecimal(form[name])]));

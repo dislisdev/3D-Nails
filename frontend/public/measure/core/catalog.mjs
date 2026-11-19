@@ -1,4 +1,5 @@
-export const APP_VERSION = '0.1.0';
+export const APP_NAME = 'Μέτρηση καμπυλότητας';
+export const APP_VERSION = '0.2.0';
 export const MATURITY = 'Πειραματικό';
 export const FORMAT_VERSION = '0.3';
 export const INTERFACE_VERSION = '0.4';
@@ -10,6 +11,9 @@ export const INPUT_MESSAGES = {
   targetCenter: 'Σημείωσε στην εικόνα το κέντρο της άνω όψης του αντικειμένου που μετράς.',
 };
 export const COIN_SOURCE = 'Ευρωπαϊκή Κεντρική Τράπεζα · Κέρματα ευρώ, Common sides · στοιχεία πακέτου Υ3γ';
+// Η ΕΚΤ δίνει ονομαστική διάμετρο, χωρίς ανοχή ή φθορά. Ο έλεγχος Υ3β Ν-6
+// έδειξε καλύτερη κάλυψη για το όριο εικόνας των 0,5 pixel έναντι των 0,15.
+export const COIN_ASSUMPTIONS = Object.freeze({ uncertaintyMm: 0.1, uncertaintyPx: 0.5 });
 export const COINS = [
   { id: '1c', label: '1 λεπτό', diameter: 16.25, thickness: 1.67 },
   { id: '2c', label: '2 λεπτά', diameter: 18.75, thickness: 1.67 },

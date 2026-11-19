@@ -3,8 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>Μέτρηση καμπυλότητας | Nailform Lab</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src blob:; connect-src 'none'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Πειραματικό</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" type="image/png" href="./icons/icon-192.png">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <link rel="stylesheet" href="./theme.css">
   <link rel="stylesheet" href="./app.css">
   <script type="module" src="./main.mjs"></script>
@@ -12,6 +15,6 @@
 <body>
   <p id="live" class="visually-hidden" role="status" aria-atomic="true"></p>
   <div id="app"></div>
-  <noscript><p>Πειραματικό · WebApp 0.1.0. Ενεργοποίησε τη JavaScript για να χρησιμοποιήσεις τη μέτρηση.</p></noscript>
+  <noscript><p>Πειραματικό · WebApp 0.2.0. Ενεργοποίησε τη JavaScript για να χρησιμοποιήσεις τη μέτρηση.</p></noscript>
 </body>
 </html>

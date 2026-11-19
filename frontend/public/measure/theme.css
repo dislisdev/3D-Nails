@@ -128,7 +128,7 @@
   --shadow-focus-ring: 0 0 0 2px #030712, 0 0 0 4px #2563eb;
 }
 
-/* WebApp 0.1.0 · συμπλήρωμα design-tokens.json */
+/* WebApp 0.2.0 · συμπλήρωμα design-tokens.json */
 :root {
   color-scheme: light;
   --color-focus-ring: #1d4ed8;
@@ -145,6 +145,9 @@
   --color-control-accent: #2563eb;
   --color-control-accent-hover: #1d4ed8;
   --color-control-accent-active: #1e40af;
+  --size-gesture-slop: 8px;
+  --size-arc-handle-visible: 24px;
+  --size-arc-handle-touch: 44px;
   --size-stroke: 0.0625rem;
   --size-stroke-focus: 0.125rem;
   --size-stroke-mark: 0.1875rem;

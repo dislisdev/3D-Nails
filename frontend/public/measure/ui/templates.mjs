@@ -1,13 +1,15 @@
-// Πειραματικό · πρότυπα οθόνης · WebApp 0.1.0.
-import { APP_VERSION, COINS, MATURITY, coinById } from '../core/catalog.mjs';
+// Πειραματικό · πρότυπα οθόνης · WebApp 0.2.0.
+import { APP_NAME, APP_VERSION, COIN_ASSUMPTIONS, COINS, MATURITY, coinById } from '../core/catalog.mjs';
 import { CHECKER_VERSION, disagreement, evaluationDifference } from '../core/measurement.mjs';
-import { outlineEdge, parseDecimal, pickedRegion, supportFor } from './model.mjs';
+import { clamp } from '../core/geometry.mjs';
+import { messages, outlineEdge, parseDecimal, pickedRegion, supportFor, targetFor } from './model.mjs';
+import { alternativeIndex } from '../core/seed-contour.mjs';
+import { canZoomIn, canZoomOut, cursorAt, viewBoxFor, viewportFor } from './viewport.mjs';
 
 const stages = [
-  ['image', 'Εικόνα'], ['scale', 'Κλίμακα'], ['contour', 'Περίγραμμα'], ['results', 'Αποτέλεσμα'], ['export', 'Αρχείο'],
+  ['image', 'Εικόνα'], ['scale', 'Αναφορά'], ['contour', 'Αντικείμενο'], ['results', 'Αποτέλεσμα'], ['export', 'Αρχείο'],
 ];
 const icons = {
-  scope: '<circle cx="12" cy="12" r="6"/><path d="M12 2v6m0 8v6M2 12h6m8 0h6"/>',
   image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
   folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/>',
@@ -18,6 +20,9 @@ const icons = {
   line: '<path d="M4 12h16"/>',
   dash: '<path d="M3 12h4m3 0h4m3 0h4"/>',
   dot: '<circle cx="12" cy="12" r="4"/>',
+  surface: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="12" r="2"/><rect x="13" y="10" width="4" height="4" rx="1"/>',
+  overhead: '<path d="M4 7h16M4 18h16m-8-8v5m-2-2 2 2 2-2"/><path d="M8 4h8v3H8z"/>',
+  objects: '<circle cx="7" cy="12" r="4"/><rect x="13" y="8" width="8" height="8" rx="2"/>',
   camera: '<path d="M4 7h4l2-3h4l2 3h4a2 2 0 0 1 2 2v10H2V9a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13" r="3"/>',
 };
 
@@ -28,16 +33,20 @@ export function escapeHtml(value) {
 const e = escapeHtml;
 const icon = (name, className = '') => '<svg class="icon ' + className + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + icons[name] + '</svg>';
 export const number = (value, digits = 3) => new Intl.NumberFormat('el-GR', {
-  useGrouping: false, maximumFractionDigits: digits,
+  useGrouping: false, minimumFractionDigits: digits, maximumFractionDigits: digits,
 }).format(value);
-const uncertainty = value => value < 0.001 ? value.toExponential(2).replace('.', ',') : number(value);
+export const uncertainty = (value, unit = 'mm', digits = 3) => {
+  const minimum = 10 ** -digits;
+  return (value < minimum ? 'κάτω από ' + number(minimum, digits) : number(value, digits)) + ' ' + unit;
+};
 const meta = (origin, method, version = APP_VERSION) => '<small class="meta">' + e([MATURITY, origin, method, version].join(' · ')) + '</small>';
 const shortMeta = (origin, method) => meta(origin, method, APP_VERSION);
 
-function button(label, { action, variant = 'secondary', glyph, id, disabled, busy, submit, pressed } = {}) {
+function button(label, { action, variant = 'secondary', glyph, id, disabled, busy, submit, pressed, unavailable } = {}) {
   return '<button type="' + (submit ? 'submit' : 'button') + '" data-variant="' + variant + '"'
     + (action ? ' data-action="' + e(action) + '"' : '') + (id ? ' id="' + e(id) + '"' : '')
     + (disabled ? ' disabled' : '') + (busy ? ' aria-busy="true"' : '')
+    + (unavailable === undefined ? '' : ' aria-disabled="' + unavailable + '"')
     + (pressed === undefined ? '' : ' aria-pressed="' + pressed + '"') + '>'
     + e(label) + (glyph ? icon(glyph) : '') + '</button>';
 }
@@ -85,7 +94,7 @@ function range(state, name, label, min, max, step, suffix, stamp) {
     + '" value="' + e(state.form[name]) + '" aria-describedby="' + name + '-status' + (invalid ? ' stage-notice' : '')
     + '"' + (invalid ? ' aria-invalid="true"' : '') + '>'
     + '<div id="' + name + '-status"><output class="reading" for="' + name + '" data-reading="' + name + '" data-suffix="' + suffix + '">'
-    + number(Number(state.form[name]), 2) + e(suffix) + '</output>' + stamp + '</div></div>';
+    + number(Number(state.form[name]), name === 'threshold' ? 0 : 2) + e(suffix) + '</output>' + stamp + '</div></div>';
 }
 
 export function coinPicker(state, name, label) {
@@ -123,19 +132,47 @@ function markedPoint(form, prefix) {
   return point.every(Number.isFinite) ? point : null;
 }
 
-export function overlayContents(state) {
+export function overlayContents(state, sizes) {
   const mark = (path, type) => '<path class="halo" d="' + path + '"/><path class="' + type + '" d="' + path + '"/>';
   const ref = pickedRegion(state, 'referenceId');
+  const target = targetFor(state);
   const support = supportFor(state);
-  const radius = state.image ? Math.min(state.image.info.width_px, state.image.info.height_px) / 90 : 4;
-  const dot = (point, size = radius) => '<circle class="marker" cx="' + point[0] + '" cy="' + point[1] + '" r="' + size + '"/>';
-  let shapes = state.regions.map((region, index) => mark(pathData(region.points), 'outline')
-    + '<text x="' + region.center[0] + '" y="' + region.center[1] + '">' + (index + 1) + '</text>').join('');
-  if (ref) shapes += mark(pathData(ref.points), 'reference');
+  const { x, y, width, height } = viewportFor(state);
+  const marker = sizes?.marker ?? [width * 0.06, height * 0.08];
+  const hit = sizes?.hit ?? [width * 0.11, height * 0.145];
+  const dot = (point, scale = 0.2) => '<ellipse class="marker" cx="' + point[0] + '" cy="' + point[1]
+    + '" rx="' + marker[0] * scale + '" ry="' + marker[1] * scale + '"/>';
+  const handle = (point, name, label) => {
+    if (point[0] < x || point[0] > x + width || point[1] < y || point[1] > y + height) return '';
+    const half = hit.map(value => value / 2);
+    const center = [clamp(point[0], x + half[0], x + width - half[0]),
+      clamp(point[1], y + half[1], y + height - half[1])];
+    const displaced = point[0] !== center[0] || point[1] !== center[1];
+    return (displaced ? mark(pathData([point, center], false), 'selection') : '')
+      + '<g class="arc-handle" data-handle="' + name + '" data-handle-x="' + point[0] + '" data-handle-y="' + point[1]
+      + '" role="slider" tabindex="0" aria-label="' + label + '" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + state.form[name]
+      + '"><rect class="handle-hit" x="' + (center[0] - half[0]) + '" y="' + (center[1] - half[1])
+      + '" width="' + hit[0] + '" height="' + hit[1] + '"/>' + dot(center, 0.5) + '</g>';
+  };
+  let shapes = ref ? mark(pathData(ref.points), 'reference') : '';
+  if (state.step === 'scale' && state.draft?.region) shapes += mark(pathData(state.draft.region.points), 'selection');
+  if (target && state.step !== 'scale') shapes += mark(pathData(target.points), 'outline');
   if (support) {
     shapes += mark(pathData(support.selected, support.mode === 'full'), 'selection');
-    if (support.mode === 'arc') shapes += dot(support.selected[0]) + dot(support.selected.at(-1));
-    if (support.anchor) shapes += dot(support.anchor, radius * 0.65);
+    if (support.anchor) shapes += dot(support.anchor);
+    if (state.step === 'contour' && state.form.purpose !== 'evaluation' && support.mode === 'arc') {
+      shapes += handle(support.selected[0], 'arcStart', 'Αρχή τόξου')
+        + handle(support.selected.at(-1), 'arcEnd', 'Τέλος τόξου');
+    }
+    if (state.step === 'contour' && state.form.purpose === 'evaluation' && support.anchor) {
+      shapes += handle(support.anchor, 'anchorPercent', 'Σημάδι στο περίγραμμα');
+    }
+  }
+  if (['scale', 'contour'].includes(state.step) && (!state.draft?.region || state.pick)) {
+    const [x, y] = cursorAt(state);
+    const [rx, ry] = marker.map(size => size / 3);
+    const path = 'M' + (x - rx) + ' ' + y + 'H' + (x + rx) + ' M' + x + ' ' + (y - ry) + 'V' + (y + ry);
+    shapes += '<g class="crosshair">' + mark(path, 'selection') + '</g>';
   }
   for (const prefix of ['reference', 'target']) {
     const point = markedPoint(state.form, prefix);
@@ -144,7 +181,7 @@ export function overlayContents(state) {
   if (state.form.purpose === 'evaluation') {
     const marks = ['controlStart', 'controlEnd'].map(prefix => markedPoint(state.form, prefix)).filter(Boolean);
     if (marks.length === 2) shapes += mark(pathData(marks, false), 'outline');
-    shapes += marks.map(point => dot(point, radius * 0.8)).join('');
+    shapes += marks.map(point => dot(point)).join('');
   }
   return shapes;
 }
@@ -152,38 +189,53 @@ export function overlayContents(state) {
 function viewer(state) {
   let body;
   let caption = '';
+  let toolbar = '';
   if (state.camera && state.camera !== 'requesting') {
     body = state.cameraStillUrl
       ? '<div class="image-stage"><img src="' + e(state.cameraStillUrl) + '" alt="Συνθετικό δείγμα προεπισκόπησης κάμερας"></div>'
       : '<div class="image-stage"><video id="camera-preview" class="camera-preview" autoplay muted playsinline aria-label="Ζωντανή προεπισκόπηση κάμερας"></video></div>';
-    caption = '<figcaption class="image-caption"><p class="quiet">Προεπισκόπηση κάμερας</p></figcaption>';
+    caption = '<figcaption class="image-caption"><p class="quiet">Προεπισκόπηση κάμερας</p>'
+      + (state.cameraSize ? '<p id="camera-resolution" class="reading">' + state.cameraSize.map(value => number(value, 0)).join(' × ') + ' px</p>'
+        + shortMeta('βίντεο κάμερας', 'ανάλυση καρέ') : '') + '</figcaption>';
   } else if (state.camera === 'requesting') {
     body = '<div class="image-well"><div class="image-empty">' + icon('camera')
-      + '<p><strong>Περιμένω άδεια κάμερας</strong></p><p class="quiet">Απάντησε στο αίτημα του browser ή ακύρωσε τη λήψη.</p></div></div>';
+      + '<p><strong>Περιμένω άδεια κάμερας</strong></p><p class="quiet">Απάντησε στο αίτημα της συσκευής ή ακύρωσε τη λήψη.</p></div></div>';
   } else if (state.image) {
-    const { info, stillUrl, name } = state.image;
-    const size = ' width="' + info.width_px + '" height="' + info.height_px + '"';
-    const description = 'Εικόνα αντικειμένων με τα περιγράμματα. Οι επιλογές της φόρμας δίνουν και χειρισμό με πληκτρολόγιο.';
-    const raster = stillUrl ? '<img src="' + e(stillUrl) + '"' + size + ' alt="' + description + '">'
+    const { info, stillUrl, name, ratio, original, origin } = state.image;
+    const backingRatio = Math.min(1, 1600 / Math.max(info.width_px, info.height_px));
+    const size = ' width="' + Math.max(1, Math.round(info.width_px * backingRatio))
+      + '" height="' + Math.max(1, Math.round(info.height_px * backingRatio)) + '"';
+    const interactive = ['scale', 'contour'].includes(state.step);
+    const description = 'Εικόνα αντικειμένων με τα επιλεγμένα περιγράμματα';
+    const raster = stillUrl ? '<svg class="raster-demo"' + size + ' viewBox="' + viewBoxFor(viewportFor(state))
+      + '" preserveAspectRatio="none" role="img" aria-label="' + description + '"><image x="-0.5" y="-0.5" width="'
+      + info.width_px + '" height="' + info.height_px + '" href="' + e(stillUrl) + '"/></svg>'
       : '<canvas id="raster"' + size + ' role="img" aria-label="' + description + '">Εικόνα εργασίας.</canvas>';
-    body = '<div class="image-stage" id="image-stage"' + (state.pick ? ' data-pick="' + e(state.pick) + '"' : '') + '>'
-      + raster + '<svg class="overlay" id="image-overlay" viewBox="-0.5 -0.5 ' + info.width_px + ' ' + info.height_px
-      + '" aria-hidden="true">' + overlayContents(state) + '</svg></div>';
+    toolbar = '<div class="actions zoom-tools" role="group" aria-label="Μεγέθυνση εικόνας">'
+      + button('Μεγέθυνε', { action: 'zoom-in', unavailable: !canZoomIn(state) })
+      + button('Σμίκρυνε', { action: 'zoom-out', unavailable: !canZoomOut(state) })
+      + button('Όλη η εικόνα', { action: 'zoom-fit', unavailable: !canZoomOut(state) }) + '</div>';
+    body = '<div class="image-stage" id="image-stage" tabindex="0" role="group" aria-label="Εικόνα εργασίας"'
+      + (interactive ? ' data-interactive aria-describedby="image-keys"' : '')
+      + (state.busy === 'edge' ? ' aria-busy="true"' : '')
+      + (state.pick ? ' data-pick="' + e(state.pick) + '"' : '') + '>'
+      + raster + '<svg class="overlay" id="image-overlay" preserveAspectRatio="none" viewBox="' + viewBoxFor(viewportFor(state)) + '"'
+      + (interactive ? ' role="group" aria-label="Περίγραμμα και σημάδια"' : ' aria-hidden="true"')
+      + '>' + overlayContents(state) + '</svg></div>';
+    const source = state.form.provenance === 'synthetic' ? 'τεχνητή εικόνα' : origin === 'camera' ? 'καρέ κάμερας' : 'φωτογραφία αντικειμένων';
     caption = '<figcaption class="image-caption"><p class="quiet">' + e(name) + '</p>'
-      + '<p class="reading">' + info.width_px + ' × ' + info.height_px + ' px</p>'
-      + shortMeta(state.form.provenance === 'synthetic' ? 'συνθετικό' : 'αντικείμενο', 'διαστάσεις εικόνας')
-      + (state.regions.length ? '<ul class="legend"><li>' + icon('dash') + 'Υποψήφιο όριο</li>'
-        + (pickedRegion(state, 'referenceId') ? '<li>' + icon('line') + 'Αναφορά</li>' : '')
-        + (supportFor(state) ? '<li>' + icon('line', 'selected-mark') + 'Επιλογή</li>' : '')
-        + (state.form.purpose === 'evaluation' && markedPoint(state.form, 'controlStart')
-          ? '<li>' + icon('dot', 'selected-mark') + 'Σημάδι δεύτερου μήκους</li>' : '') + '</ul>'
-        + shortMeta('εκτίμηση', 'όριο με παρεμβολή στο κατώφλι') : '') + '</figcaption>';
+      + '<p class="reading">' + number(info.width_px, 0) + ' × ' + number(info.height_px, 0) + ' px</p>'
+      + (ratio < 1 ? '<p class="help">Μείωση από ' + number(original.width, 0) + ' × ' + number(original.height, 0)
+        + ' px με λόγο ' + number(ratio, 6) + '.</p>' : '')
+      + shortMeta(source, 'διαστάσεις εικόνας μέτρησης')
+      + (interactive ? '<p class="help" id="image-keys">Με πληκτρολόγιο, κίνησε το σημάδι με τα βέλη και διάλεξε με Enter. Με δύο δάχτυλα κάνε ζουμ ή μετακίνησε την εικόνα.</p>' : '')
+      + '</figcaption>';
   } else {
     body = '<div class="image-well"><div class="image-empty">' + icon('image')
-      + '<p><strong>Εδώ θα δεις το περίγραμμα</strong></p><p class="quiet">Φόρτωσε μια εικόνα με το αντικείμενο και την αναφορά του.</p></div></div>';
+      + '<p><strong>Εδώ θα δεις το περίγραμμα</strong></p><p class="quiet">Φόρτωσε ή τράβηξε μια εικόνα για να ξεκινήσεις.</p></div></div>';
   }
-  return '<figure class="viewer" aria-labelledby="viewer-title"><div class="viewer-head"><h2 id="viewer-title">Εικόνα εργασίας</h2>'
-    + '<span class="meta">Στη μνήμη της σελίδας</span></div>' + body + caption + '</figure>';
+  return '<figure class="viewer" aria-labelledby="viewer-title"><div class="viewer-head"><h2 id="viewer-title">Εικόνα εργασίας</h2></div>'
+    + toolbar + body + caption + '</figure>';
 }
 
 function stageNotice(state) {
@@ -195,16 +247,18 @@ function stageHeading(title, text) {
 }
 
 function adjustThreshold(state) {
-  return '<div class="stack">' + range(state, 'threshold', 'Κατώφλι φωτεινότητας', 0, 254, 1, '',
-    shortMeta('εκτίμηση Otsu ή χειροκίνητο', 'ανίχνευση ορίου'))
-    + '<div class="actions">' + button(state.busy === 'threshold' ? 'Βρίσκω περιγράμματα' : 'Εφάρμοσε κατώφλι',
-      { action: 'threshold', id: 'apply-threshold', busy: state.busy === 'threshold' }) + '</div></div>';
+  return '<div class="stack">' + checkChoice(state, 'manualThreshold', 'Χρησιμοποίησε χειροκίνητο κατώφλι')
+    + (state.form.manualThreshold
+      ? range(state, 'threshold', 'Κατώφλι φωτεινότητας', 0, 254, 1, '', shortMeta('χειροκίνητο', 'κατώφλι εικόνας'))
+        + '<div class="actions">' + button('Βρες αρχική τιμή', { action: 'suggest-threshold' }) + '</div>'
+        + '<p class="help">Χρησιμοποίησέ το για σκούρα αντικείμενα σε ανοιχτό φόντο. Άγγιξε ξανά το αντικείμενο μετά την αλλαγή.</p>'
+      : '') + '</div>';
 }
 
 function cameraPanel(state) {
   const ready = state.camera === 'ready', capturing = state.camera === 'capturing';
   const label = ready ? 'Τράβηξε καρέ' : capturing ? 'Διαβάζω καρέ' : state.camera === 'starting' ? 'Ανοίγω προεπισκόπηση' : 'Περιμένω άδεια';
-  return stageHeading('Λήψη από κάμερα', 'Βάλε τα αντικείμενα σε ανοιχτό, ομοιόμορφο φόντο. Κράτησε χέρια και ανθρώπους έξω από το κάδρο.')
+  return stageHeading('Ζωντανή κάμερα', 'Κράτησε χέρια και ανθρώπους έξω από το κάδρο.')
     + stageNotice(state) + '<div class="actions">'
     + button(label, { action: 'capture-camera', variant: 'primary', glyph: 'camera', id: 'capture-camera', busy: !ready })
     + button('Ακύρωσε λήψη', { action: 'cancel-camera', id: 'cancel-camera' }) + '</div>';
@@ -213,38 +267,47 @@ function cameraPanel(state) {
 function imagePanel(state) {
   if (state.camera) return cameraPanel(state);
   const loaded = state.image !== null;
-  const enough = state.regions.length >= 2;
-  return stageHeading(loaded ? 'Εικόνα έτοιμη' : 'Πρόσθεσε εικόνα', loaded
-    ? 'Χρειάζεσαι δύο χωριστά περιγράμματα. Το ένα θα δώσει την κλίμακα.'
-    : 'Βάλε τα αντικείμενα σε ανοιχτό, ομοιόμορφο φόντο. Κράτησε χέρια και ανθρώπους έξω από το κάδρο.')
+  return stageHeading(loaded ? 'Χρησιμοποίησε την εικόνα' : 'Πρόσθεσε εικόνα')
+    + (loaded ? '' : '<ul class="capture-guide">'
+      + '<li>' + icon('surface') + 'Βάλε τα αντικείμενα σε ομοιόμορφο φόντο.</li>'
+      + '<li>' + icon('overhead') + 'Κράτησε το κινητό παράλληλα πάνω από τα αντικείμενα.</li>'
+      + '<li>' + icon('objects') + 'Βάλε στο κάδρο μόνο αντικείμενα, χωρίς χέρια ή ανθρώπους.</li></ul>')
     + stageNotice(state)
-    + '<input type="file" id="image-file" aria-label="Διάλεξε αρχείο εικόνας" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" hidden>'
+    + '<input type="file" id="image-file" aria-label="Διάλεξε αρχείο εικόνας" accept="image/*" hidden>'
+    + '<input type="file" id="photo-file" aria-label="Τράβηξε φωτογραφία" accept="image/*" capture="environment" hidden>'
     + '<div class="actions">'
-    + (loaded ? button('Όρισε κλίμακα', { action: 'to-scale', variant: 'primary', id: 'to-scale', disabled: !enough || state.busy }) : '')
-    + button(state.busy === 'file' ? 'Ανοίγω εικόνα' : loaded ? 'Άλλαξε εικόνα' : 'Φόρτωσε εικόνα',
-      { action: 'file', variant: loaded ? 'secondary' : 'primary', glyph: 'folder', id: 'choose-file', busy: state.busy === 'file' })
-    + button('Άνοιξε κάμερα', { action: 'open-camera', id: 'open-camera', glyph: 'camera', disabled: state.busy === 'file' })
-    + (loaded && state.busy !== 'file' ? button('Αφαίρεσε εικόνα', { action: 'reset', variant: 'destructive' }) : '')
+    + (loaded ? button('Χρησιμοποίησε την εικόνα', { action: 'to-scale', variant: 'primary', id: 'to-scale', disabled: Boolean(state.busy) }) : '')
+    + button(state.busy === 'photo' ? 'Ανοίγω φωτογραφία' : 'Τράβηξε φωτογραφία',
+      { action: 'photo', variant: loaded ? 'secondary' : 'primary', glyph: 'camera', id: 'take-photo', busy: state.busy === 'photo', disabled: state.busy === 'file' })
+    + button(state.busy === 'file' ? 'Ανοίγω εικόνα' : 'Φόρτωσε εικόνα',
+      { action: 'file', glyph: 'folder', id: 'choose-file', busy: state.busy === 'file', disabled: state.busy === 'photo' })
+    + button('Άνοιξε κάμερα', { action: 'open-camera', id: 'open-camera', disabled: Boolean(state.busy) })
+    + (loaded ? button('Αφαίρεσε εικόνα', { action: 'reset', variant: 'destructive', disabled: Boolean(state.busy) }) : '')
     + '</div>'
-    + (loaded && !enough ? adjustThreshold(state) : '')
-    + choices(state, 'provenance', 'Προέλευση εικόνας', [
-      { value: 'object', text: 'Φωτογραφία αντικειμένων' }, { value: 'synthetic', text: 'Τεχνητή εικόνα' },
-    ])
-    + (state.form.provenance === 'synthetic'
-      ? '<div class="field-pair">' + field(state, 'generatorId', 'Γεννήτρια εικόνας')
-        + field(state, 'generatorVersion', 'Έκδοση γεννήτριας', { metaText: shortMeta('χειροκίνητο', 'δήλωση γεννήτριας') }) + '</div>' : '')
     + choices(state, 'purpose', 'Σκοπός', [
       { value: 'measurement', text: 'Απλή μέτρηση' }, { value: 'evaluation', text: 'Δοκιμή αξιολόγησης' },
     ])
-    + (state.form.purpose === 'evaluation' ? '<p class="help">Βάλε δύο διαφορετικά κέρματα κοντά στο κέντρο της εικόνας. Κράτησε την κάμερα κάθετη στο χαρτί. Πρόσθεσε ανεξάρτητο γνωστό μήκος στο ύψος του χείλους της αναφοράς.</p>' : '');
+    + (state.form.purpose === 'evaluation' ? '<p class="help">Βάλε δύο διαφορετικά κέρματα και ένα χωριστό γνωστό μήκος στο κάδρο.</p>' : '')
+    + details(state, 'image-settings', 'Περισσότερες ρυθμίσεις',
+      choices(state, 'provenance', 'Προέλευση εικόνας', [
+        { value: 'object', text: 'Φωτογραφία αντικειμένων' }, { value: 'synthetic', text: 'Τεχνητή εικόνα' },
+      ]) + (state.form.provenance === 'synthetic'
+        ? '<div class="field-pair">' + field(state, 'generatorId', 'Γεννήτρια εικόνας')
+          + field(state, 'generatorVersion', 'Έκδοση γεννήτριας', { metaText: shortMeta('χειροκίνητο', 'δήλωση γεννήτριας') }) + '</div>' : ''));
 }
 
-function objectChoices(state, name, label) {
-  const reference = name === 'targetId' ? state.form.referenceId : null;
-  return choices(state, name, label, state.regions.map((region, index) => ({
-    value: region.id, text: 'Αντικείμενο ' + (index + 1), disabled: String(region.id) === reference,
-  })), { describedBy: name + '-meta' })
-    + '<div id="' + name + '-meta">' + shortMeta('εκτίμηση', 'αρίθμηση περιοχών εικόνας') + '</div>';
+function seedControls(state, accepted) {
+  if (state.busy === 'edge') return '<p class="seed-progress" aria-busy="true">Ψάχνω την ακμή</p>';
+  const draft = state.draft;
+  if (!draft && !accepted) return '';
+  const larger = draft?.candidates && alternativeIndex(draft, 1) >= 0;
+  const smaller = draft?.candidates && alternativeIndex(draft, -1) >= 0;
+  return (draft?.region ? '<p>Ταιριάζει το περίγραμμα με το αντικείμενο;</p>' : '')
+    + '<div class="actions">'
+    + (draft?.region ? button('Σωστό', { action: 'confirm-seed', id: 'confirm-seed', variant: 'primary' }) : '')
+    + button('Ξανά', { action: 'retry-seed' })
+    + (larger ? button('Μεγαλύτερη περιοχή', { action: 'seed-larger' }) : '')
+    + (smaller ? button('Μικρότερη περιοχή', { action: 'seed-smaller' }) : '') + '</div>';
 }
 
 function outlineFields(state, prefix) {
@@ -270,48 +333,64 @@ function evaluationControl(state) {
     + numericFields(state, [[prefix + 'X', label + ' x (px)'], [prefix + 'Y', label + ' y (px)']])
     + '<div class="actions">' + button(state.pick === prefix ? 'Ακύρωσε σήμανση' : 'Σήμανε ' + label.toLocaleLowerCase('el'),
       { action: 'pick-' + prefix, id: 'pick-' + prefix, pressed: state.pick === prefix }) + '</div></div>';
-  return details(state, 'evaluation-control', 'Δεύτερο γνωστό μήκος', '<p class="help">Χρησιμοποίησε δύο σημάδια χάρακα ή τη διάμετρο τρίτου κέρματος. Σημείωσε τα άκρα στην ίδια εικόνα ή γράψε τις συντεταγμένες.</p>'
+  return details(state, 'evaluation-control', 'Δεύτερο γνωστό μήκος',
+    '<p class="help">Διάλεξε σημάδια σε χωριστό χάρακα ή τη διάμετρο τρίτου κέρματος. Σημείωσε τα δύο άκρα στην εικόνα.</p>'
+    + '<p class="help">Βάλε τα σημάδια του χάρακα στο ύψος του χείλους του κέρματος. Κάθε χιλιοστό διαφοράς αλλάζει την κλίμακα περίπου 0,4% από απόσταση 25 εκατοστών.</p>'
+    + shortMeta('γεωμετρική εκτίμηση', 'έλεγχος Υ3β Ν-4')
     + choices(state, 'controlKind', 'Είδος δεύτερου μήκους', [
       { value: 'segment', text: 'Τμήμα χάρακα' }, { value: 'circle', text: 'Διάμετρος τρίτου κέρματος' },
     ]) + endpoint('controlStart', 'Πρώτο άκρο') + endpoint('controlEnd', 'Δεύτερο άκρο')
     + numericFields(state, [['controlLength', 'Γνωστό μήκος (mm)'], ['controlUncertaintyMm', 'Αβεβαιότητα μήκους (mm)'],
       ['controlUncertaintyPx', 'Αβεβαιότητα εικόνας (px)']])
-    + field(state, 'controlSource', 'Πηγή μήκους και αβεβαιοτήτων')
-    + checkChoice(state, 'controlIndependent', 'Το μήκος είναι ανεξάρτητο και στο ίδιο επίπεδο με την αναφορά'));
+    + field(state, 'controlSource', 'Πηγή μήκους και αβεβαιοτήτων'));
 }
 
 function viewFields(state) {
-  return details(state, 'view-geometry', 'Ύψη και απόσταση φακού',
-    '<p class="help">Άφησε κενό ό,τι αγνοείς. Οι αποστάσεις μετρώνται από το χαρτί.</p>'
+  return '<h3>Ύψη και απόσταση φακού</h3>'
+    + '<p class="help">Άφησε κενό ό,τι αγνοείς. Οι αποστάσεις μετρώνται από το χαρτί.</p>'
     + numericFields(state, [['cameraDistance', 'Απόσταση φακού (mm)'], ['cameraUncertainty', 'Αβεβαιότητα απόστασης (mm)'],
       ['referenceHeight', 'Ύψος αναφοράς (mm)'], ['referenceHeightUncertainty', 'Αβεβαιότητα ύψους αναφοράς (mm)'],
-      ['contourHeight', 'Ύψος αντικειμένου (mm)'], ['contourHeightUncertainty', 'Αβεβαιότητα ύψους αντικειμένου (mm)']]));
+      ['contourHeight', 'Ύψος αντικειμένου (mm)'], ['contourHeightUncertainty', 'Αβεβαιότητα ύψους αντικειμένου (mm)']]);
+}
+
+function coinAssumptions(state) {
+  const inputs = [
+    [state.form.referenceUncertaintyMm, COIN_ASSUMPTIONS.uncertaintyMm, 'mm για τη γνωστή διάμετρο'],
+    [state.form.referenceUncertaintyPx, COIN_ASSUMPTIONS.uncertaintyPx, 'pixel για τη διάμετρο στην εικόνα'],
+  ];
+  const defaults = inputs.filter(([fieldValue]) => !fieldValue.trim())
+    .map(([, value, label]) => number(value, 1) + ' ' + label);
+  return defaults.length
+    ? '<div><p class="help">Τυπική αβεβαιότητα ' + defaults.join(' και ') + ' · υπόθεση, δεν μετρήθηκε.</p>'
+      + shortMeta('υπόθεση εφαρμογής', 'διάμετρος από κατάλογο ΕΚΤ') + '</div>'
+    : '';
 }
 
 function scalePanel(state) {
   const evaluation = state.form.purpose === 'evaluation';
-  return stageHeading('Όρισε την κλίμακα', evaluation
-    ? 'Διάλεξε το κέρμα αναφοράς και όρισε το ανεξάρτητο μήκος της δοκιμής.'
-    : 'Διάλεξε το κυκλικό αντικείμενο αναφοράς και δώσε τη γνωστή διάμετρό του.')
+  const fromCoin = evaluation || state.form.dimensionKind === 'coin';
+  const accepted = pickedRegion(state, 'referenceId');
+  return stageHeading(fromCoin ? 'Άγγιξε το κέρμα' : 'Άγγιξε την αναφορά')
     + stageNotice(state) + '<form data-submit="scale" novalidate>'
-    + objectChoices(state, 'referenceId', 'Αντικείμενο αναφοράς')
-    + (evaluation ? '' : choices(state, 'dimensionKind', 'Γνωστή διάμετρος', [{ value: 'coin', text: 'Κέρμα ευρώ' }, { value: 'manual', text: 'Δική μου τιμή' }]))
-    + (evaluation || state.form.dimensionKind === 'coin'
-      ? coinPicker(state, 'coinId', 'Κέρμα αναφοράς')
-      : field(state, 'diameter', 'Διάμετρος (mm)', { numeric: true, help: 'Εύρος 10 έως 50 mm κατά το συμβόλαιο.',
+    + (fromCoin ? coinPicker(state, 'coinId', 'Ποιο κέρμα είναι η αναφορά') + (coinById(state.form.coinId) ? coinAssumptions(state) : '') : '')
+    + viewer(state)
+    + seedControls(state, accepted)
+    + details(state, 'scale-settings', 'Περισσότερες ρυθμίσεις',
+      (evaluation ? '' : choices(state, 'dimensionKind', 'Γνωστή διάμετρος', [{ value: 'coin', text: 'Κέρμα ευρώ' }, { value: 'manual', text: 'Δική μου τιμή' }]))
+      + (fromCoin ? '' : field(state, 'diameter', 'Διάμετρος (mm)', { numeric: true, help: 'Εύρος 10 έως 50 mm κατά το συμβόλαιο.',
         metaText: meta('χειροκίνητο', 'δήλωση διαμέτρου · συμβόλαιο', '0.3') }))
-    + '<div class="field-pair">'
-    + field(state, 'referenceUncertaintyMm', 'Τυπική αβεβαιότητα (mm)', { numeric: true, help: 'Για τη γνωστή διάμετρο.', metaText: shortMeta('χειροκίνητο', 'δήλωση αβεβαιότητας') })
-    + field(state, 'referenceUncertaintyPx', 'Τυπική αβεβαιότητα (px)', { numeric: true, help: 'Για τη διάμετρο στην εικόνα.', metaText: shortMeta('χειροκίνητο', 'δήλωση αβεβαιότητας') })
-    + '</div>' + field(state, 'referenceSource', 'Πηγή διαμέτρου και αβεβαιοτήτων', {
-      help: state.form.dimensionKind === 'coin' ? 'Η διάμετρος του κέρματος έρχεται από τον κατάλογο. Γράψε πώς βρήκες τις αβεβαιότητες.'
-        : 'Γράψε από πού πήρες τη διάμετρο και πώς βρήκες τις αβεβαιότητες.',
-    })
-    + details(state, 'reference-geometry', 'Χείλος και θέση της αναφοράς', outlineFields(state, 'reference'))
-    + viewFields(state)
+      + '<div class="field-pair">'
+      + field(state, 'referenceUncertaintyMm', 'Τυπική αβεβαιότητα (mm)', { numeric: true, help: 'Για τη γνωστή διάμετρο.',
+        placeholder: fromCoin ? number(COIN_ASSUMPTIONS.uncertaintyMm, 1) : null, metaText: shortMeta('χειροκίνητο', 'δήλωση αβεβαιότητας') })
+      + field(state, 'referenceUncertaintyPx', 'Τυπική αβεβαιότητα (px)', { numeric: true, help: 'Για τη διάμετρο στην εικόνα.',
+        placeholder: fromCoin ? number(COIN_ASSUMPTIONS.uncertaintyPx, 1) : null, metaText: shortMeta('χειροκίνητο', 'δήλωση αβεβαιότητας') })
+      + '</div>' + field(state, 'referenceSource', 'Πηγή διαμέτρου και αβεβαιοτήτων', {
+        help: fromCoin ? 'Προαιρετικά, γράψε την πηγή των τιμών που αλλάζεις.'
+          : 'Γράψε από πού πήρες τη διάμετρο και τις αβεβαιότητες.',
+      }) + '<h3>Χείλος και κέντρο αναφοράς</h3>' + outlineFields(state, 'reference') + viewFields(state) + adjustThreshold(state))
     + (evaluation ? evaluationControl(state) : '')
-    + details(state, 'scale-threshold', 'Ρύθμιση κατωφλίου', adjustThreshold(state))
-    + '<div class="actions">' + button('Χρησιμοποίησε την κλίμακα', { submit: true, variant: 'primary', id: 'set-scale' })
+    + '<div class="actions">'
+    + (accepted && !state.draft ? button('Συνέχισε στο αντικείμενο', { submit: true, variant: 'primary', id: 'set-scale' }) : '')
     + button('Πίσω στην εικόνα', { action: 'back-image' }) + '</div></form>';
 }
 
@@ -330,7 +409,7 @@ function scaleSummary(scale) {
   return '<div class="stack"><p>Κλίμακα <strong class="reading">' + number(scale.mm_per_px, 6) + ' mm/px</strong></p>' + stamp
     + (scale.scale_uncertainty_mm_per_px === null ? ''
       : '<p>Τυπική αβεβαιότητα κλίμακας <strong class="reading">'
-        + uncertainty(scale.scale_uncertainty_mm_per_px) + ' mm/px</strong></p>' + stamp)
+        + uncertainty(scale.scale_uncertainty_mm_per_px, 'mm/px', 6) + '</strong></p>' + stamp)
     + '<p class="help">' + e(scaleLabels[scale.scale_status]) + '</p></div>';
 }
 
@@ -348,47 +427,55 @@ function evaluationSupport(state) {
 function contourPanel(state) {
   const evaluation = state.form.purpose === 'evaluation';
   const isArc = !evaluation && state.form.selectionMode === 'arc';
-  return stageHeading('Διάλεξε περίγραμμα', evaluation
-    ? 'Διάλεξε το δεύτερο κέρμα και όρισε το σημάδι του τόξου.'
-    : 'Δείξε ποιο αντικείμενο μετράς. Κράτησε μόνο το καμπύλο τμήμα όταν υπάρχει ευθύ κομμάτι.')
-    + stageNotice(state) + scaleSummary(state.scale)
-    + '<form data-submit="measure" novalidate>' + objectChoices(state, 'targetId', 'Αντικείμενο μέτρησης')
-    + (evaluation ? evaluationSupport(state)
-      : choices(state, 'selectionMode', 'Τμήμα περιγράμματος', [{ value: 'full', text: 'Ολόκληρο' }, { value: 'arc', text: 'Τόξο' }]))
-    + (isArc ? '<p class="help">Κίνησε την αρχή και το τέλος με τα βέλη του πληκτρολογίου ή δείξε τα πάνω στην εικόνα. Η επιλογή ακολουθεί το περίγραμμα δεξιόστροφα.</p>'
-      + '<div class="field-pair">'
-      + range(state, 'arcStart', 'Αρχή τόξου', 0, 100, 0.01, '%', shortMeta('χειροκίνητο', 'θέση στο περίγραμμα'))
-      + range(state, 'arcEnd', 'Τέλος τόξου', 0, 100, 0.01, '%', shortMeta('χειροκίνητο', 'θέση στο περίγραμμα'))
-      + '</div><div class="actions">'
-      + button(state.pick === 'arcStart' ? 'Ακύρωσε σήμανση' : 'Δείξε αρχή στην εικόνα', { action: 'pick-arcStart', id: 'pick-arcStart', pressed: state.pick === 'arcStart' })
-      + button(state.pick === 'arcEnd' ? 'Ακύρωσε σήμανση' : 'Δείξε τέλος στην εικόνα', { action: 'pick-arcEnd', id: 'pick-arcEnd', pressed: state.pick === 'arcEnd' })
-      + '</div>' : '')
-    + checkChoice(state, 'materialInside', 'Το υλικό βρίσκεται μέσα στο περίγραμμα')
-    + details(state, 'target-geometry', 'Χείλος και θέση του αντικειμένου', outlineFields(state, 'target'))
-    + viewFields(state)
-    + details(state, 'contour-threshold', 'Ρύθμιση κατωφλίου', adjustThreshold(state))
-    + '<div class="actions">' + button(state.busy === 'measure' ? 'Υπολογίζω τις ακτίνες'
+  const target = pickedRegion(state, 'targetId');
+  return stageHeading('Άγγιξε το αντικείμενο')
+    + stageNotice(state)
+    + (state.scale?.reference_length_px < 300 ? notice({ tone: 'warning',
+      text: messages.referenceResolution })
+      + shortMeta('περίγραμμα αναφοράς', 'διάμετρος στην εικόνα') : '')
+    + '<form data-submit="measure" novalidate>'
+    + (evaluation ? evaluationSupport(state) : '')
+    + viewer(state)
+    + seedControls(state, target)
+    + details(state, 'contour-settings', 'Περισσότερες ρυθμίσεις',
+      (evaluation ? '' : choices(state, 'selectionMode', 'Τμήμα περιγράμματος', [{ value: 'full', text: 'Ολόκληρο' }, { value: 'arc', text: 'Τόξο' }]))
+      + (isArc ? '<p class="help">Δείξε μόνο την καμπύλη όταν υπάρχει ευθύ κομμάτι. Μετακίνησε τις λαβές ή τα ρυθμιστικά με τα βέλη. Το τόξο ακολουθεί το περίγραμμα δεξιόστροφα.</p>'
+        + '<div class="field-pair">'
+        + range(state, 'arcStart', 'Αρχή τόξου', 0, 100, 0.01, '%', shortMeta('χειροκίνητο', 'θέση στο περίγραμμα'))
+        + range(state, 'arcEnd', 'Τέλος τόξου', 0, 100, 0.01, '%', shortMeta('χειροκίνητο', 'θέση στο περίγραμμα'))
+        + '</div><div class="actions">'
+        + button(state.pick === 'arcStart' ? 'Ακύρωσε σήμανση' : 'Δείξε αρχή στην εικόνα', { action: 'pick-arcStart', id: 'pick-arcStart', pressed: state.pick === 'arcStart' })
+        + button(state.pick === 'arcEnd' ? 'Ακύρωσε σήμανση' : 'Δείξε τέλος στην εικόνα', { action: 'pick-arcEnd', id: 'pick-arcEnd', pressed: state.pick === 'arcEnd' })
+        + '</div>' : '')
+      + checkChoice(state, 'materialInside', 'Το υλικό βρίσκεται μέσα στο περίγραμμα')
+      + '<h3>Χείλος και κέντρο αντικειμένου</h3>' + outlineFields(state, 'target') + viewFields(state) + adjustThreshold(state))
+    + '<div class="actions">'
+    + (target && !state.draft ? button(state.busy === 'measure' ? 'Υπολογίζω τις ακτίνες'
       : evaluation ? 'Μέτρησε πλήρες και τόξο' : 'Υπολόγισε ακτίνες',
-      { submit: true, variant: 'primary', id: 'measure', busy: state.busy === 'measure' })
-    + button('Πίσω στην κλίμακα', { action: 'back-scale' }) + '</div></form>';
+      { submit: true, variant: 'primary', id: 'measure', busy: state.busy === 'measure' }) : '')
+    + button('Πίσω στην αναφορά', { action: 'back-scale' }) + '</div></form>';
 }
 
 const titles = { 'taubin-v0': 'Taubin', 'triplet-median-v0': 'Διάμεσος τριάδων' };
 
-function methodResult(method, knownCoin) {
+function methodResult(method, knownCoin, scale, view) {
   const { raw, derived } = method;
   const stamp = meta(raw.provenance, titles[raw.method_id], raw.method_version);
   const difference = knownCoin ? evaluationDifference(raw, knownCoin.diameter) : null;
+  const unknown = [view.camera_distance_mm, view.reference_height_mm, view.contour_height_mm].filter(value => value === null).length;
+  const why = unknown === 3 ? 'Η απόσταση του φακού και τα ύψη δεν είναι γνωστά.'
+    : unknown ? 'Λείπει η απόσταση του φακού ή το ύψος της αναφοράς ή του αντικειμένου.'
+      : scale.scale_status === 'usable' ? 'Η συσχέτιση κλίμακας και ακτίνας είναι άγνωστη.' : scaleLabels[scale.scale_status];
   return '<section class="method-row"><h3>' + e(titles[raw.method_id]) + '</h3>'
     + (raw.status === 'abstain'
       ? '<p><strong>Δεν έδωσε ακτίνα</strong></p><p class="quiet">' + e(raw.reason) + '</p>' + stamp
       : '<p class="radius">' + number(raw.radius_mm) + ' <span class="unit">mm</span></p>' + stamp
-        + '<p>Αβεβαιότητα μεθόδου <strong class="reading">' + uncertainty(raw.radius_uncertainty_mm) + ' mm</strong></p>' + stamp
-        + '<p class="help">Συντηρητικό εύρος με σταθερή κλίμακα.</p>'
-        + (derived.radius_total_uncertainty_mm === null ? '<p class="help">Συνολική αβεβαιότητα μέτρησης άγνωστη.</p>'
-          : '<p>Συνολικό περιθώριο <strong class="reading">' + uncertainty(derived.radius_total_uncertainty_mm) + ' mm</strong></p>' + stamp)
-        + (derived.radius_rim_systematic_mm > 0 ? '<p>Περιθώριο χείλους <strong class="reading">'
-          + uncertainty(derived.radius_rim_systematic_mm) + ' mm</strong></p>' + meta('εκτίμηση', 'όρος χείλους, συμβόλαιο', '0.3') : '')
+        + (derived.radius_total_uncertainty_mm === null
+          ? '<p class="uncertainty-note"><strong>Η συνολική αβεβαιότητα της μέτρησης είναι άγνωστη.</strong> ' + e(why) + '</p>'
+          : '<p>Περιθώριο: τυπική αβεβαιότητα συν όριο χείλους <strong class="reading">' + uncertainty(derived.radius_total_uncertainty_mm) + '</strong></p>' + stamp)
+        + '<p class="help">Αβεβαιότητα μεθόδου με σταθερή κλίμακα <strong class="reading">' + uncertainty(raw.radius_uncertainty_mm) + '</strong></p>' + stamp
+        + (derived.radius_rim_systematic_mm > 0 ? '<p>Όριο χείλους <strong class="reading">'
+          + uncertainty(derived.radius_rim_systematic_mm) + '</strong></p>' + meta('εκτίμηση', 'όρος χείλους, συμβόλαιο', '0.3') : '')
         + (difference ? '<p>Διαφορά από τη δημοσιευμένη ακτίνα <strong class="reading">' + number(difference.difference)
           + ' mm (' + number(100 * difference.relative, 2) + '%)</strong></p>'
           + meta('εκτίμηση έναντι διαμέτρου ΕΚΤ', titles[raw.method_id], raw.method_version) : '')
@@ -415,7 +502,7 @@ function resultPanel(state) {
       + e(knownCoin.label) + ' · ' + number(knownCoin.diameter, 2) + ' mm</strong></p>'
       + shortMeta('δημοσιευμένες διαστάσεις', 'ΕΚΤ, κατάλογος WebApp') + '</div>' : '')
     + (alert ? notice({ tone: 'warning', text: alert }) : '')
-    + measurement.methods.map(method => methodResult(method, knownCoin)).join('')
+    + measurement.methods.map(method => methodResult(method, knownCoin, measurement.calibration, measurement.view)).join('')
     + scaleSummary(measurement.calibration)
     + '<p class="help">Οι μέθοδοι εκτελούνται μέσα στη σελίδα. Η προεπισκόπηση περιέχει τις αυτούσιες εξόδους.</p>'
     + '<div class="actions">' + button('Δες προεπισκόπηση', { action: 'to-export', variant: 'primary' })
@@ -445,15 +532,14 @@ const panels = { image: imagePanel, scale: scalePanel, contour: contourPanel, re
 
 export function pageContent(state) {
   const controls = '<section class="panel" aria-labelledby="stage-title">' + panels[state.step](state) + '</section>';
-  const imageView = viewer(state);
-  const work = state.image || state.camera ? imageView + controls : controls + imageView;
-  return '<header class="masthead"><div class="layout"><p class="brand">' + icon('scope') + 'Nailform Lab</p>'
-    + '<p class="meta">' + MATURITY + ' · WebApp ' + APP_VERSION + '</p></div></header>'
-    + '<main id="main" class="layout"><div class="intro"><h1>Μέτρηση καμπυλότητας</h1>'
-    + notice({ text: 'Η εφαρμογή δεν έχει δοκιμαστεί σε πραγματική φωτογραφία ή σε νύχι. Η εκτίμηση δεν δείχνει αν ένα νύχι θα εφαρμόσει.' })
-    + '</div><ol class="steps" aria-label="Βήματα μέτρησης">'
+  const hasInlineViewer = ['scale', 'contour'].includes(state.step);
+  const work = controls + (hasInlineViewer ? '' : viewer(state));
+  return '<header class="masthead"><div class="layout"><p class="meta">' + MATURITY + ' · WebApp ' + APP_VERSION
+    + '</p></div></header>'
+    + '<main id="main" class="layout"><div class="intro"><h1>' + e(APP_NAME) + '</h1></div>'
+    + '<ol class="steps" aria-label="Βήματα μέτρησης">'
     + stages.map(([key, title]) => '<li' + (key === state.step ? ' aria-current="step"' : '') + '>' + title + '</li>').join('')
-    + '</ol><div class="workbench">' + work + '</div></main>'
-    + '<footer class="footer"><div class="layout"><p>' + MATURITY + ' · Nailform Lab · WebApp ' + APP_VERSION
+    + '</ol><div class="workbench"' + (hasInlineViewer ? ' data-inline-viewer' : '') + '>' + work + '</div></main>'
+    + '<footer class="footer"><div class="layout"><p>' + MATURITY + ' · WebApp ' + APP_VERSION
     + '</p><p>Επεξεργασία στη συσκευή</p></div></footer>';
 }
