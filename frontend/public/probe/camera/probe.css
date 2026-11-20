@@ -25,12 +25,21 @@ main {
   margin: 0;
 }
 
-:where(h1, h2, p, pre, button) {
+:where(h1, h2, p, pre, button, li, label) {
   overflow-wrap: anywhere;
 }
 
 [hidden] {
   display: none !important;
+}
+
+.visually-hidden {
+  position: absolute;
+  inline-size: var(--size-stroke);
+  block-size: var(--size-stroke);
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .layout {
@@ -127,6 +136,111 @@ h2 {
   border-radius: var(--radius-md);
   background: var(--color-surface-raised);
   object-fit: contain;
+}
+
+.camera-details {
+  display: grid;
+  justify-items: start;
+  flex: 1 1 100%;
+  gap: var(--space-2);
+  min-inline-size: 0;
+}
+
+.choice-set {
+  display: grid;
+  gap: var(--space-1);
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.choice-set legend {
+  padding: 0;
+  font-weight: var(--weight-semibold);
+}
+
+.camera-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-inline-start: var(--space-6);
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  min-block-size: var(--size-control-lg);
+  padding: var(--space-2);
+  border: var(--size-stroke) solid var(--color-input-border);
+  border-radius: var(--radius-button);
+  cursor: pointer;
+}
+
+.choice input {
+  flex: none;
+  inline-size: var(--size-icon-sm);
+  block-size: var(--size-icon-sm);
+  margin: 0;
+  accent-color: var(--color-control-accent);
+}
+
+.choice:not(:has(input:disabled)):hover {
+  border-color: var(--color-text-secondary);
+}
+
+.choice:has(input:checked) {
+  border-color: var(--color-focus-ring);
+}
+
+.choice:not(:has(input:disabled)):active {
+  background: var(--color-surface-sunken);
+}
+
+.choice:has(input:focus-visible) {
+  outline: var(--size-stroke-focus) solid var(--color-focus-ring);
+  outline-offset: var(--size-stroke-focus);
+}
+
+.choice:has(input:disabled) {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-inline-size: 0;
+}
+
+.file-source {
+  flex: 1 1 100%;
+}
+
+.distance-table {
+  inline-size: 100%;
+  min-inline-size: 0;
+  border-collapse: collapse;
+  table-layout: fixed;
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+  text-align: start;
+}
+
+.distance-table caption {
+  padding-block-end: var(--space-1);
+  font-weight: var(--weight-semibold);
+  text-align: start;
+}
+
+.distance-table :where(th, td) {
+  padding: var(--space-1);
+  border-block-end: var(--size-stroke) solid var(--color-border-default);
+  text-align: start;
+  vertical-align: top;
 }
 
 .summary-panel {

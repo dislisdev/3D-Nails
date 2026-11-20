@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="el" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'none'; img-src 'self' blob:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Πειραματικό · Σελίδα πάγκου 0.1.1 · Πυρήνας 0.1.2</title>
+  <link rel="stylesheet" href="./theme.css">
+  <link rel="stylesheet" href="./bench.css">
+  <script type="module" src="./bench.mjs"></script>
+</head>
+<body>
+  <aside class="privacy" aria-label="Ιδιωτικότητα">
+    <p class="layout">Καμία εικόνα δεν αποθηκεύεται και τίποτα δεν στέλνεται. Η σελίδα κρατά μόνο σημεία και αριθμούς, ώσπου να την κλείσεις.</p>
+  </aside>
+
+  <main class="layout page">
+    <header class="intro">
+      <p class="edition">Πειραματικό · NAILFORM LAB · Πυρήνας 0.1.2 · Εστιακή κάρτας 0.1.0</p>
+      <h1>Σελίδα πάγκου 0.1.1</h1>
+      <p>Μέτρησε την ακτίνα ενός αντικειμένου από λοξές φωτογραφίες. Χρησιμοποίησε τη σελίδα μόνο για αντικείμενα πάγκου. Απόφυγε λήψεις με χέρια ή νύχια.</p>
+      <p class="hint">Η μέθοδος έχει δοκιμαστεί μόνο σε συνθετικά δεδομένα.</p>
+    </header>
+
+    <noscript><p class="notice">Ενεργοποίησε τη JavaScript στον browser για να χρησιμοποιήσεις τη σελίδα.</p></noscript>
+
+    <section class="panel" aria-labelledby="reference-heading">
+      <h2 id="reference-heading">1. Κάρτα και διάμετρος</h2>
+      <div class="columns">
+        <div class="stack">
+          <label class="check-field">
+            <input id="confirm-card" type="checkbox" autocomplete="off" aria-describedby="card-size-note">
+            <span>Η κάρτα μου έχει μέγεθος τραπεζικής κάρτας: 85,60 × 53,98 mm</span>
+          </label>
+          <p id="card-size-note" class="hint">Λάθος μέγεθος κάρτας περνά στην ακτίνα χωρίς καμία προειδοποίηση.</p>
+        </div>
+        <div class="stack">
+          <label for="diameter">Γνωστή διάμετρος από παχύμετρο (mm)</label>
+          <input id="diameter" class="text-field" type="text" inputmode="decimal" autocomplete="off"
+            aria-describedby="diameter-note diameter-error">
+          <p id="diameter-note" class="hint">Προαιρετική. Γράψε π.χ. 18,42 ή 18.42.</p>
+          <p id="diameter-error" class="error" aria-live="polite"></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="photos-heading">
+      <h2 id="photos-heading">2. Φωτογραφίες και σημεία</h2>
+      <p>Πρόσθεσε 2 έως 10 φωτογραφίες από διαφορετικές λοξές γωνίες. Φρόντισε να φαίνονται η πάνω έδρα της κάρτας και τα δύο σημάδια στην άκρη του αντικειμένου.</p>
+      <div class="actions">
+        <input id="file-picker" type="file" accept="image/*" multiple hidden>
+        <button id="add-photos" type="button" data-primary aria-controls="photo-list" disabled>Πρόσθεσε φωτογραφίες</button>
+      </div>
+      <p id="photo-message" class="hint" aria-live="polite">Διάλεξε αρχεία από την κάμερα του κινητού.</p>
+      <ul id="photo-list" class="photo-list" aria-label="Φωτογραφίες"></ul>
+
+      <div id="active-photo" class="editor" hidden>
+        <div class="editor-head">
+          <div class="stack">
+            <h3 id="photo-title">Φωτογραφία</h3>
+            <p id="photo-meta" class="hint"></p>
+          </div>
+          <button id="remove-photo" type="button">Αφαίρεσε τη φωτογραφία</button>
+        </div>
+        <p id="preview-message" class="notice" aria-live="polite"></p>
+        <div id="editor-tools" class="editor-tools" hidden>
+          <div class="actions" role="group" aria-label="Είδος σημείων">
+            <button id="mark-card" type="button" aria-pressed="true">Σημείωσε την κάρτα</button>
+            <button id="mark-edge" type="button" aria-pressed="false">Σημείωσε την άκρη</button>
+          </div>
+          <div id="card-guide" class="card-guide">
+            <p id="corner-guide">Με την πάνω έδρα ορατή και τη μεγάλη πλευρά οριζόντια, σημάδεψε την κάτω αριστερή γωνία με αυτοκόλλητο ή στυλό. Σε κάθε λήψη, ξεκίνα από το σημάδι. Πήγαινε πρώτα κατά μήκος της μεγάλης πλευράς και συνέχισε αριστερόστροφα, όπως στο σχήμα.</p>
+            <svg class="corner-diagram" viewBox="0 0 192 108" role="img" aria-labelledby="corner-diagram-title"
+              fill="none" stroke="currentColor">
+              <title id="corner-diagram-title">Αριστερόστροφη φορά. Από τη σημαδεμένη γωνία 1 στη 2 κατά μήκος της μεγάλης πλευράς, μετά στη 3 και στη 4.</title>
+              <path class="diagram-line" d="M24 82H168V26H24Z"/>
+              <path class="diagram-line" d="m92 76 7 6-7 6m70-38 6-7 6 7m-74-18-7-6 7-6M30 55l-6 7-6-7"/>
+              <circle cx="24" cy="82" r="4" fill="currentColor"/>
+              <g class="diagram-label" fill="currentColor" stroke="none" text-anchor="middle">
+                <text x="24" y="103">1</text><text x="168" y="103">2</text>
+                <text x="168" y="17">3</text><text x="24" y="17">4</text>
+              </g>
+            </svg>
+          </div>
+          <p id="edge-guide" hidden>Βάλε δύο σημάδια στο αντικείμενο για τα άκρα της χορδής. Σημείωσε πρώτα το Α, μετά σημεία κατά μήκος της άκρης και τελευταίο το Β. Κράτησε τα ίδια φυσικά άκρα και την ίδια σειρά σε όλες τις φωτογραφίες. Βάλε τουλάχιστον 8 σημεία μαζί με τα άκρα, ιδανικά 12 έως 20.</p>
+
+          <p id="mark-status" class="status" aria-live="polite"></p>
+          <p id="canvas-guide" class="hint">Πάτησε για σημείο. Σύρε σε κενό χώρο για μετακίνηση ή άνοιξε δύο δάχτυλα για μεγέθυνση. Από το πληκτρολόγιο, κίνησε το σταυρόνημα ή το επιλεγμένο σημείο με τα βέλη. Κράτα Shift για 10 pixel. Πάτησε Enter για νέο σημείο, Page Up ή Page Down για επιλογή και Escape για επιστροφή στο σταυρόνημα.</p>
+          <canvas id="photo-canvas" class="viewer" role="application" tabindex="0" aria-label="Σημείωση φωτογραφίας"
+            aria-describedby="canvas-guide mark-status" aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Enter PageUp PageDown Escape Delete"></canvas>
+          <p id="cursor-readout" class="hint" aria-live="polite"></p>
+
+          <div class="actions" role="group" aria-label="Μεγέθυνση εικόνας">
+            <button id="zoom-in" type="button">Μεγέθυνε</button>
+            <button id="zoom-out" type="button">Σμίκρυνε</button>
+            <button id="fit-photo" type="button">Δείξε όλη την εικόνα</button>
+          </div>
+          <div class="actions" role="group" aria-label="Μετακίνηση εικόνας">
+            <button type="button" data-pan="-1,0" aria-label="Δείξε πιο αριστερά">Αριστερά</button>
+            <button type="button" data-pan="1,0" aria-label="Δείξε πιο δεξιά">Δεξιά</button>
+            <button type="button" data-pan="0,-1" aria-label="Δείξε πιο πάνω">Πάνω</button>
+            <button type="button" data-pan="0,1" aria-label="Δείξε πιο κάτω">Κάτω</button>
+          </div>
+          <div class="actions" role="group" aria-label="Επεξεργασία σημείων">
+            <button id="previous-point" type="button">Επίλεξε προηγούμενο</button>
+            <button id="next-point" type="button">Επίλεξε επόμενο</button>
+            <button id="clear-selection" type="button">Άφησε την επιλογή</button>
+            <button id="delete-point" type="button">Διάγραψε το σημείο</button>
+            <button id="undo-point" type="button">Αναίρεσε την τελευταία αλλαγή</button>
+          </div>
+          <details class="point-list">
+            <summary>Σημεία και συντεταγμένες</summary>
+            <p class="hint">Pixel της πλήρους εικόνας μετά τον προσανατολισμό. Το x αυξάνεται προς τα δεξιά και το y προς τα κάτω.</p>
+            <div class="columns">
+              <div><h4>Γωνίες κάρτας</h4><ol id="corner-list"></ol></div>
+              <div><h4>Σημεία άκρης</h4><ol id="edge-list"></ol></div>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <details class="assumptions">
+        <summary>Παραδοχές για την εικόνα</summary>
+        <p>Το κύριο σημείο της κάμερας θεωρείται στο κέντρο της πλήρους εικόνας, μετά τον προσανατολισμό. <span class="formula">cx = W/2, cy = H/2</span>.</p>
+        <p>Όταν όλες οι έτοιμες φωτογραφίες έχουν ισοδύναμη εστιακή 35 mm στο EXIF του JPEG, τη μετατρέπουμε σε pixel και τη συγκρίνουμε με την εστιακή από την κάρτα. Χρησιμοποιούμε τη διαγώνιο 43,27 mm του κάδρου 35 mm. <span class="formula">f_px = f35 · √(W² + H²) / 43,27</span>.</p>
+        <p>Αν έστω μία έτοιμη φωτογραφία δεν έχει εστιακή, υπολογίζουμε μία κοινή εστιακή από τις γωνίες της κάρτας.</p>
+      </details>
+    </section>
+
+    <section class="panel" aria-labelledby="measure-heading">
+      <h2 id="measure-heading">3. Ακτίνα και σύνοψη</h2>
+      <div id="lens-confirmation" class="stack" hidden>
+        <label class="check-field">
+          <input id="confirm-lens" type="checkbox" autocomplete="off" aria-describedby="lens-note">
+          <span>Όλες οι φωτογραφίες είναι από το ίδιο κινητό, με τον ίδιο φακό (1×), χωρίς ζουμ ή περικοπή</span>
+        </label>
+        <p id="lens-note" class="hint">Για την εστιακή από την κάρτα χρειάζονται λοξές λήψεις ίδιων διαστάσεων. Μπορείς να κρατήσεις το κινητό οριζόντια ή κάθετα.</p>
+      </div>
+      <div class="actions">
+        <button id="measure" type="button" disabled>Υπολόγισε την ακτίνα</button>
+      </div>
+      <div id="result-area" class="result-area" aria-live="polite">
+        <p id="measure-status" class="status">Επιβεβαίωσε την κάρτα και ετοίμασε τουλάχιστον 2 φωτογραφίες.</p>
+        <div id="result-details" class="result-area" hidden></div>
+      </div>
+      <div id="summary-area" class="stack" hidden>
+        <div class="actions">
+          <button id="copy-summary" type="button">Αντιγραφή σύνοψης</button>
+        </div>
+        <p id="copy-status" class="status" aria-live="polite"></p>
+        <details id="summary-disclosure">
+          <summary>Δες το κείμενο της σύνοψης</summary>
+          <textarea id="summary-text" class="text-field summary-text" aria-label="Κείμενο σύνοψης" rows="9" readonly></textarea>
+        </details>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

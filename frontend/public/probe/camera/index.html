@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'none'; img-src 'self' blob:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>Έλεγχος κάμερας · Πειραματικό 0.1.1</title>
+  <title>Έλεγχος κάμερας · Πειραματικό 0.1.2</title>
   <link rel="stylesheet" href="./theme.css">
   <link rel="stylesheet" href="./probe.css">
   <script type="module" src="./probe.mjs"></script>
@@ -18,7 +18,7 @@
   <main>
     <div class="layout page">
       <header class="intro">
-        <p class="edition">Πειραματικό · Έκδοση 0.1.1</p>
+        <p class="edition">Πειραματικό · Έκδοση 0.1.2</p>
         <h1>Έλεγχος κάμερας</h1>
         <p>Στρέψε την κάμερα σε ένα αντικείμενο πάνω στο τραπέζι. Όχι σε πρόσωπα ή χέρια.</p>
       </header>
@@ -29,11 +29,44 @@
         <section class="step" id="step-live" aria-labelledby="title-live" data-current>
           <div class="step-text">
             <h2 id="title-live">Ζωντανή κάμερα</h2>
-            <p class="instruction" id="help-live">Κράτα το κινητό σταθερό όσο δοκιμάζονται τέσσερα μεγέθη.</p>
+            <p class="instruction" id="help-live">Κράτα το κινητό σταθερό όσο δοκιμάζονται τα μεγέθη και ανοίγει ο κύριος φακός.</p>
             <p class="status" id="status-live" aria-live="polite">δεν ζητήθηκε</p>
           </div>
           <button type="button" data-step="live" data-variant="primary" aria-current="step" aria-describedby="help-live status-live" disabled>Ξεκίνα την κάμερα</button>
           <div class="preview" id="preview-live" hidden></div>
+          <div class="camera-details" id="camera-details" hidden>
+            <p class="status" id="status-main-camera" aria-live="polite"></p>
+            <fieldset class="choice-set" id="camera-choices">
+              <legend>Κάμερες βίντεο</legend>
+              <ol class="camera-list" id="camera-list"></ol>
+            </fieldset>
+            <button type="button" id="open-main-camera" aria-describedby="status-main-camera" hidden disabled>Άνοιξε τον φακό</button>
+          </div>
+        </section>
+
+        <section class="step" id="step-distance" aria-labelledby="title-distance" hidden>
+          <div class="step-text">
+            <h2 id="title-distance">Ευκρίνεια ανά απόσταση</h2>
+            <p class="instruction" id="help-distance">Βάλε μια κάρτα με τυπωμένα γράμματα στο τραπέζι. Μέτρα με χάρακα από τον φακό ως την κάρτα. Κράτα το κινητό σταθερό για δύο δευτερόλεπτα σε κάθε μέτρηση, με μόνο την κάρτα στο κάδρο.</p>
+            <p class="instruction" id="distance-scene"></p>
+            <p class="status" id="status-distance" aria-live="polite">δεν ζητήθηκε</p>
+          </div>
+          <div class="camera-details" id="distance-controls" hidden>
+            <fieldset class="choice-set">
+              <legend>Διάλεξε κάμερα</legend>
+              <label class="choice"><input type="radio" name="distance-camera" id="distance-main" disabled>Κύριος φακός</label>
+              <label class="choice"><input type="radio" name="distance-camera" id="distance-triple" disabled>Τριπλή κάμερα</label>
+            </fieldset>
+            <div class="action-row" id="distance-actions" role="group" aria-label="Αποστάσεις μέτρησης"></div>
+          </div>
+          <div class="preview" id="preview-distance" hidden></div>
+          <table class="distance-table" id="distance-table" hidden>
+            <caption>Διασπορά Λαπλασιανής · διάμεσος / μέγιστο</caption>
+            <thead>
+              <tr><th scope="col">Απόσταση</th><th scope="col">Κύριος φακός</th><th scope="col">Τριπλή κάμερα</th></tr>
+            </thead>
+            <tbody id="distance-rows"></tbody>
+          </table>
         </section>
 
         <section class="step" id="step-photo" aria-labelledby="title-photo">
@@ -59,11 +92,21 @@
         <section class="step" id="step-file" aria-labelledby="title-file">
           <div class="step-text">
             <h2 id="title-file">Φωτογραφία από το τηλέφωνο</h2>
-            <p class="instruction" id="help-file" hidden>Φωτογράφισε το αντικείμενο από την επιλογή κάμερας του τηλεφώνου.</p>
+            <p class="instruction" id="help-file" hidden>Φωτογράφισε το αντικείμενο από την επιλογή κάμερας του τηλεφώνου. Δοκίμασε και φωτογραφία από τα Αρχεία (Files) και γράψε από πού τη διάλεξες.</p>
             <p class="status" id="status-file" aria-live="polite">δεν ζητήθηκε</p>
           </div>
-          <button type="button" data-step="file" aria-describedby="status-file" disabled>Άνοιξε την κάμερα του τηλεφώνου</button>
+          <div class="action-row">
+            <button type="button" data-step="file" aria-describedby="status-file" disabled>Άνοιξε την κάμερα του τηλεφώνου</button>
+            <button type="button" id="pick-file" aria-describedby="help-file status-file" disabled>Διάλεξε φωτογραφία</button>
+          </div>
           <input id="capture-file" type="file" accept="image/*" capture="environment" hidden>
+          <input id="browse-file" type="file" accept="image/*" hidden>
+          <fieldset class="choice-set file-source" id="file-source" hidden>
+            <legend>Πηγή φωτογραφίας</legend>
+            <label class="choice"><input type="radio" name="photo-source" id="source-library" disabled>Βιβλιοθήκη</label>
+            <label class="choice"><input type="radio" name="photo-source" id="source-files" disabled>Αρχεία</label>
+            <label class="choice"><input type="radio" name="photo-source" id="source-capture" disabled>Λήψη</label>
+          </fieldset>
         </section>
 
         <section class="step" id="step-tilt" aria-labelledby="title-tilt">
@@ -81,7 +124,7 @@
         <p class="instruction" id="help-copy" hidden>Αντέγραψε το κείμενο για να κρατήσεις τις μετρήσεις.</p>
         <button type="button" data-step="copy" aria-describedby="status-copy" disabled>Αντιγραφή σύνοψης</button>
         <p class="status" id="status-copy" aria-live="polite"></p>
-        <pre id="report-text" tabindex="0" aria-labelledby="title-copy">Πειραματικό · Έλεγχος κάμερας V1 · έκδοση 0.1.1</pre>
+        <pre id="report-text" tabindex="0" aria-labelledby="title-copy">Πειραματικό · Έλεγχος κάμερας V1 · έκδοση 0.1.2</pre>
       </section>
     </div>
   </main>

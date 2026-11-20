@@ -1,10 +1,12 @@
-const PROBE_VERSION = '0.1.1';
+const PROBE_VERSION = '0.1.2';
+export const FILE_SOURCES = ['Βιβλιοθήκη', 'Αρχεία', 'Λήψη'];
 
 const MISSING = 'δεν δίνεται';
 const NOT_REQUESTED = 'δεν ζητήθηκε';
 const STATES = {
   done: 'έγινε',
   partial: 'έγινε εν μέρει',
+  choice: 'χρειάζεται επιλογή',
   denied: 'άρνηση άδειας',
   unavailable: MISSING,
   empty: MISSING,
@@ -30,7 +32,7 @@ function value(input, unit = '', number = standardNumber) {
   if (Number.isFinite(input)) return number.format(input) + unit;
   if (typeof input === 'string') {
     const text = input.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
-    if (text) return text;
+    if (text && !/(?:data|blob):/i.test(text)) return text;
   }
   return MISSING;
 }
@@ -67,39 +69,103 @@ export function formatStatus(result) {
   return result.message ? `${status} · ${value(result.message)}` : status;
 }
 
+function appendCameraAttempt(lines, attempt, exact = false) {
+  const { settings, capabilities } = attempt;
+  const source = exact ? 'συγκεκριμένη κάμερα (exact)' : 'πίσω κάμερα (ideal)';
+  lines.push(
+    `  Αίτημα ${dimensions(attempt.request)} (ideal) · ${source}, χωρίς ήχο · ${formatStatus(attempt)}`,
+    `    Πρώτο καρέ (videoWidth × videoHeight) · ${dimensions(attempt.frame)}`,
+    `    Ετικέτα κάμερας (MediaStreamTrack.label) · ${value(attempt.label)}`,
+  );
+  if (exact) {
+    const match = attempt.deviceMatches === undefined ? MISSING : attempt.deviceMatches ? 'ναι' : 'όχι';
+    lines.push(
+      `    Ετικέτα που επιλέχθηκε (enumerateDevices()) · ${value(attempt.requestedLabel)}`,
+      `    Ίδια συσκευή κατά τις ρυθμίσεις · ${match}`,
+    );
+  } else {
+    lines.push(`    Κάμερες βίντεο (enumerateDevices()) · ${value(attempt.cameraCount)}`);
+  }
+  const reportedSettings = [
+    `πλάτος ${value(settings?.width, ' px')}`,
+    `ύψος ${value(settings?.height, ' px')}`,
+    `frameRate ${value(settings?.frameRate, ' καρέ/δευτ.', oneDecimal)}`,
+    `facingMode ${value(settings?.facingMode)}`,
+    `zoom ${value(settings?.zoom)}`,
+    `focusMode ${value(settings?.focusMode)}`,
+    `resizeMode ${value(settings?.resizeMode)}`,
+  ];
+  const reportedCapabilities = [
+    `πλάτος ${range(capabilities?.width)}`,
+    `ύψος ${range(capabilities?.height)}`,
+    `zoom ${range(capabilities?.zoom)}`,
+    `focusMode ${modes(capabilities?.focusMode)}`,
+    `focusDistance ${range(capabilities?.focusDistance)}`,
+  ];
+  lines.push(
+    `    getSettings() · ${reportedSettings.join(' · ')}`,
+    `    getCapabilities() · ${reportedCapabilities.join(' · ')}`,
+  );
+}
+
+export function formatMainStatus(main) {
+  const status = `Κύριος πίσω φακός · ${formatStatus(main)}`;
+  return main?.frame ? `${status} · ${value(main.label)} · ${dimensions(main.frame)}` : status;
+}
+
 function appendCamera(lines, result) {
   for (const attempt of result?.attempts ?? []) {
-    const profile = dimensions(attempt.request);
-    if (!attempt.requested) {
-      lines.push(`  Προφίλ ${profile} (ideal) · ${NOT_REQUESTED}`);
-      continue;
-    }
-    const settings = attempt.settings;
-    const capabilities = attempt.capabilities;
-    const reportedSettings = [
-      `πλάτος ${value(settings?.width, ' px')}`,
-      `ύψος ${value(settings?.height, ' px')}`,
-      `frameRate ${value(settings?.frameRate, ' καρέ/δευτ.', oneDecimal)}`,
-      `facingMode ${value(settings?.facingMode)}`,
-      `zoom ${value(settings?.zoom)}`,
-      `focusMode ${value(settings?.focusMode)}`,
-      `resizeMode ${value(settings?.resizeMode)}`,
-    ];
-    const reportedCapabilities = [
-      `πλάτος ${range(capabilities?.width)}`,
-      `ύψος ${range(capabilities?.height)}`,
-      `zoom ${range(capabilities?.zoom)}`,
-      `focusMode ${modes(capabilities?.focusMode)}`,
-      `focusDistance ${range(capabilities?.focusDistance)}`,
-    ];
-    lines.push(
-      `  Αίτημα ${profile} (ideal) · πίσω κάμερα (ideal), χωρίς ήχο · ${formatStatus(attempt)}`,
-      `    Πρώτο καρέ (videoWidth × videoHeight) · ${dimensions(attempt.frame)}`,
-      `    Ετικέτα κάμερας (MediaStreamTrack.label) · ${value(attempt.label)}`,
-      `    Κάμερες βίντεο (enumerateDevices()) · ${value(attempt.cameraCount)}`,
-      `    getSettings() · ${reportedSettings.join(' · ')}`,
-      `    getCapabilities() · ${reportedCapabilities.join(' · ')}`,
-    );
+    if (attempt.requested) appendCameraAttempt(lines, attempt);
+    else lines.push(`  Προφίλ ${dimensions(attempt.request)} (ideal) · ${NOT_REQUESTED}`);
+  }
+  if (result) {
+    const labels = result.cameraLabels ?? [];
+    lines.push(`  Ετικέτες καμερών βίντεο (enumerateDevices())${labels.length ? '' : ` · ${MISSING}`}`);
+    for (const [index, label] of labels.entries()) lines.push(`    ${index + 1}. ${value(label)}`);
+    lines.push(`  ${formatMainStatus(result.main)}`);
+    if (result.main?.request) appendCameraAttempt(lines, result.main, true);
+  }
+}
+
+export function formatDistanceScores(reading) {
+  return reading?.state === 'done'
+    ? `${value(reading.median, '', threeDecimals)} / ${value(reading.maximum, '', threeDecimals)}`
+    : formatStatus(reading);
+}
+
+function distanceDetails(reading) {
+  const label = value(reading.label);
+  const frame = dimensions(reading.frame);
+  if (reading.state !== 'done') {
+    return [formatStatus(reading), label, frame].filter((text) => text !== MISSING).join(' · ') || MISSING;
+  }
+  const zoom = reading.zoomMin === reading.zoomMax
+    ? value(reading.zoomMin) : `${value(reading.zoomMin)}–${value(reading.zoomMax)}`;
+  const unit = reading.method === 'requestAnimationFrame + video.currentTime' ? ' επεξεργασίες' : ' καρέ';
+  return `${label} · ${frame} · zoom ${zoom} · ${formatDistanceScores(reading)} · ${value(reading.samples, unit)}`;
+}
+
+export function formatDistanceStatus(reading) {
+  const prefix = `${DISTANCE_CAMERAS[reading.role]} · ${reading.cm} cm`;
+  const status = reading.state === 'done' ? `${formatStatus(reading)} · ` : '';
+  return `${prefix} · ${status}${distanceDetails(reading)}`;
+}
+
+function appendDistance(lines, results) {
+  const roles = Object.keys(DISTANCE_CAMERAS);
+  lines.push(
+    '',
+    `Ευκρίνεια ανά απόσταση (καμβάς, ${value(DISTANCE_WINDOW_MS / 1000, ' δευτ.')})`,
+    `  ${SAME_SCENE}`,
+    '  Κεντρικό τέταρτο · διασπορά Λαπλασιανής (διάμεσος / μέγιστο).',
+    `  Απόσταση | ${roles.map((role) => DISTANCE_CAMERAS[role]).join(' | ')}`,
+  );
+  for (const cm of DISTANCES_CM) {
+    const cells = roles.map((role) => {
+      const reading = results?.[role]?.[cm];
+      return reading ? distanceDetails(reading) : NOT_REQUESTED;
+    });
+    lines.push(`  ${cm} cm | ${cells.join(' | ')}`);
   }
 }
 
@@ -145,6 +211,8 @@ function appendSpeed(lines, result) {
 
 function appendFile(lines, result) {
   if (!Number.isFinite(result?.bytes)) return;
+  const source = FILE_SOURCES.includes(result.source) ? result.source : undefined;
+  lines.push(`  Πηγή φωτογραφίας (δήλωση χρήστη) · ${value(source)}`);
   lines.push(`  File.type · ${value(result.type)} · File.size · ${value(result.bytes, ' bytes')}`);
   const exif = result.exif;
   if (exif?.format === 'jpeg') {
@@ -202,6 +270,7 @@ export function formatSummary(results = {}, date = new Date()) {
     const result = results[key];
     lines.push('', `${title} · ${formatStatus(result)}`);
     append(lines, result);
+    if (key === 'live' && (result?.cameraLabels || results.distance)) appendDistance(lines, results.distance);
   }
   return lines.join('\n');
 }
@@ -219,3 +288,5 @@ export function formatStepStatus(key, result) {
   if (key === 'tilt' && result?.events > 0) metric = value(result.hz, ' γεγονότα/δευτ.', threeDecimals);
   return metric ? `${status} · ${metric}` : status;
 }
+import { DISTANCES_CM, DISTANCE_CAMERAS, DISTANCE_WINDOW_MS, SAME_SCENE } from './distance.mjs';
+

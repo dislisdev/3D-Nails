@@ -1,4 +1,5 @@
 import { describeError, imageSize, ProbeError, waitFor } from './browser.mjs';
+import { cameraLabel, canChooseMain, identifyCameras, normalizedCameraLabel } from './camera-labels.mjs';
 import { CAMERA_PROFILES } from './profiles.mjs';
 
 export function cameraDevices() {
@@ -65,12 +66,12 @@ async function firstVideoFrame(video, signal) {
   }
 }
 
-export async function withCamera(devices, request, preview, signal, inspect) {
+export async function withCamera(devices, request, preview, signal, inspect, deviceId) {
   signal.throwIfAborted();
   const stream = await waitFor(devices.getUserMedia({
     audio: false,
     video: {
-      facingMode: { ideal: 'environment' },
+      ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: { ideal: 'environment' } }),
       width: { ideal: request.width },
       height: { ideal: request.height },
     },
@@ -143,8 +144,7 @@ export function stringList(list) {
   return Array.isArray(list) ? list.filter((item) => typeof item === 'string') : undefined;
 }
 
-function readSettings(track) {
-  const settings = track.getSettings?.();
+function publicSettings(settings) {
   if (!settings) return undefined;
   const { width, height, frameRate, facingMode, zoom, focusMode, resizeMode } = settings;
   return { width, height, frameRate, facingMode, zoom, focusMode, resizeMode };
@@ -162,18 +162,31 @@ function readCapabilities(track) {
   };
 }
 
-async function countVideoDevices(devices, signal) {
+function cameraDetails(track, deviceId) {
+  const settings = optional(() => track.getSettings?.());
+  const reportedId = settings?.deviceId;
+  const label = track.label === reportedId || track.label === settings?.groupId
+    ? undefined : cameraLabel(track.label);
+  return {
+    label,
+    settings: publicSettings(settings),
+    capabilities: optional(() => readCapabilities(track)),
+    deviceMatches: deviceId && typeof reportedId === 'string' && reportedId ? reportedId === deviceId : undefined,
+  };
+}
+
+async function listVideoDevices(devices, signal) {
   try {
     if (typeof devices.enumerateDevices !== 'function') return undefined;
     const entries = await waitFor(devices.enumerateDevices(), signal, { timeoutMs: 4000 });
-    return entries.filter((device) => device.kind === 'videoinput').length;
+    return entries.filter((device) => device.kind === 'videoinput');
   } catch {
     signal.throwIfAborted();
     return undefined;
   }
 }
 
-export async function probeLive(preview, signal, progress = () => {}) {
+export async function probeLive(preview, signal, progress = () => {}, onDevices) {
   const attempts = CAMERA_PROFILES.map((request) => ({ request }));
   let devices;
   try {
@@ -198,10 +211,11 @@ export async function probeLive(preview, signal, progress = () => {}) {
           frames++;
         } finally {
           signal.throwIfAborted();
-          attempt.settings = optional(() => readSettings(track));
-          attempt.capabilities = optional(() => readCapabilities(track));
-          attempt.label = track.label;
-          attempt.cameraCount = await countVideoDevices(devices, signal);
+          const { label, settings, capabilities } = cameraDetails(track);
+          Object.assign(attempt, { label, settings, capabilities });
+          const entries = await listVideoDevices(devices, signal);
+          attempt.cameraCount = entries?.length;
+          if (entries) onDevices?.(entries);
         }
       });
       attempt.state = 'done';
@@ -215,4 +229,54 @@ export async function probeLive(preview, signal, progress = () => {}) {
   if (frames === attempts.length) return { state: 'done', attempts };
   if (frames > 0) return { state: 'partial', message: 'Ορισμένα αιτήματα έμειναν χωρίς καρέ.', attempts };
   return { ...lastFailure, attempts };
+}
+
+export async function probeSelectedCamera(camera, preview, signal, measure) {
+  const request = CAMERA_PROFILES[0];
+  const result = { request, requestedLabel: camera?.label };
+  if (!camera?.deviceId) {
+    return { ...result, state: 'unavailable', message: 'Ο browser δεν έδωσε τρόπο να ανοίξει αυτή την κάμερα.' };
+  }
+  try {
+    await withCamera(cameraDevices(), request, preview, signal, async (track, startVideo) => {
+      let video;
+      try {
+        ({ video, frame: result.frame } = await startVideo());
+      } finally {
+        signal.throwIfAborted();
+        Object.assign(result, cameraDetails(track, camera.deviceId));
+      }
+      if (result.deviceMatches === false) {
+        throw new ProbeError('error', 'Ο browser ανέφερε άλλη συσκευή από αυτή που ζητήθηκε.');
+      }
+      if (result.deviceMatches === undefined && result.label && result.requestedLabel &&
+          normalizedCameraLabel(result.label) !== normalizedCameraLabel(result.requestedLabel)) {
+        throw new ProbeError('error', 'Ο browser έδωσε άλλη ετικέτα από αυτή που ζητήθηκε.');
+      }
+      if (measure) Object.assign(result, await measure(video, result.frame, track));
+    }, camera.deviceId);
+    return { ...result, state: 'done' };
+  } catch (error) {
+    signal.throwIfAborted();
+    return { ...result, ...describeError(error, 'Η συγκεκριμένη κάμερα δεν άνοιξε. Μπορείς να ξαναδοκιμάσεις.') };
+  }
+}
+
+export async function probeCameraList(preview, signal, progress) {
+  let entries;
+  const live = await probeLive(preview, signal, progress, (devices) => { entries = devices; });
+  signal.throwIfAborted();
+  if (!entries) return { live };
+
+  const catalog = identifyCameras(entries);
+  live.cameraLabels = catalog.cameras.map(({ label }) => label);
+  if (catalog.main) {
+    progress?.('Άνοιγμα του κύριου πίσω φακού.');
+    live.main = await probeSelectedCamera(catalog.main, preview, signal);
+  } else {
+    live.main = catalog.cameras.some(canChooseMain)
+      ? { state: 'choice', message: 'Διάλεξε τον κύριο πίσω φακό από τη λίστα.' }
+      : { state: 'unavailable', message: 'Ο browser δεν έδωσε επιλογή για τον κύριο πίσω φακό.' };
+  }
+  return { live, catalog };
 }
