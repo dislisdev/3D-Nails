@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="el" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'none'; img-src 'self' blob:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Πειραματικό · Οδηγός λήψης 0.1.0</title>
+  <link rel="stylesheet" href="./theme.css">
+  <link rel="stylesheet" href="./bench/bench.css">
+  <link rel="stylesheet" href="./guide.css">
+  <script type="module" src="./main.mjs"></script>
+</head>
+<body>
+  <main class="layout page guide-page">
+    <header class="guide-header">
+      <p class="edition">Πειραματικό · Οδηγός λήψης 0.1.0</p>
+      <h1>Λήψη για μέτρηση</h1>
+      <p class="hint">Οι φωτογραφίες μένουν στη μνήμη αυτής της σελίδας.</p>
+      <p id="demo-label" class="notice" hidden>Συνθετικό δείγμα. Η εικόνα και οι γωνίες προέρχονται από προσομοίωση.</p>
+    </header>
+
+    <nav aria-label="Πρόοδος λήψης">
+      <ol id="progress" class="progress">
+        <li aria-current="step">Πριν ξεκινήσεις</li>
+        <li>Κάμερα</li>
+        <li>Πάνω</li>
+        <li>Βεντάλια</li>
+        <li>Πλάι</li>
+        <li>Έλεγχος</li>
+        <li>Μέτρηση</li>
+      </ol>
+    </nav>
+    <p id="load-message" class="notice">Φορτώνω τον οδηγό. Αν μείνει εδώ, ξανάνοιξε τη σελίδα σε browser με JavaScript ενεργή.</p>
+
+    <section class="panel guide-step" data-step="1" aria-labelledby="step1-title">
+      <header class="step-header">
+        <div><h2 id="step1-title" tabindex="-1">Πριν ξεκινήσεις</h2><p class="hint step-summary" hidden></p></div>
+        <button class="edit-step" type="button" hidden>Άλλαξε</button>
+      </header>
+      <div class="step-body">
+        <p data-placement="materials"></p>
+        <form id="prep-form" class="step-body" novalidate>
+          <fieldset>
+            <legend>Τι μετράς;</legend>
+            <div class="choices">
+              <label class="choice"><input name="subject" type="radio" value="object" checked>Αντικείμενο με γνωστό μέγεθος</label>
+              <label class="choice"><input name="subject" type="radio" value="nail">Νύχι</label>
+            </div>
+          </fieldset>
+          <div id="object-fields" class="stack">
+            <label for="known-diameter">Γνωστή διάμετρος από παχύμετρο (mm)</label>
+            <input id="known-diameter" class="text-field" type="text" inputmode="decimal" autocomplete="off" aria-describedby="known-diameter-hint prep-error">
+            <p id="known-diameter-hint" class="hint">Προαιρετική. Γράψε π.χ. 18,42 ή 18.42.</p>
+          </div>
+          <div id="nail-fields" class="stack" hidden>
+            <fieldset id="edge-field" aria-describedby="prep-error">
+              <legend>Πώς είναι κομμένη η άκρη του νυχιού;</legend>
+              <div class="choices">
+                <label class="choice"><input name="edge" type="radio" value="straight">Ίσια</label>
+                <label class="choice"><input name="edge" type="radio" value="rounded">Στρογγυλεμένη</label>
+                <label class="choice"><input name="edge" type="radio" value="unknown">Δεν ξέρω</label>
+              </div>
+            </fieldset>
+            <label class="check-field">
+              <input id="consent" type="checkbox" autocomplete="off" aria-describedby="prep-error">
+              <span>Το νύχι είναι δικό μου ή ανθρώπου που συμφώνησε. Οι φωτογραφίες μένουν μέσα σε αυτή τη σελίδα.</span>
+            </label>
+          </div>
+          <div class="placement">
+            <p data-placement="card"></p>
+            <p id="subject-placement"></p>
+          </div>
+          <p id="prep-error" class="error" aria-live="polite"></p>
+          <div class="actions"><button id="prep-continue" type="submit" data-primary disabled>Συνέχισε στην κάμερα</button></div>
+        </form>
+      </div>
+    </section>
+
+    <section class="panel guide-step" data-step="2" aria-labelledby="step2-title" hidden>
+      <header class="step-header">
+        <div><h2 id="step2-title" tabindex="-1">Κάμερα και αισθητήρας</h2><p class="hint step-summary" hidden></p></div>
+        <button class="edit-step" type="button" hidden>Άλλαξε</button>
+      </header>
+      <div class="step-body">
+        <div id="camera-preview-mount"></div>
+        <div class="stack">
+          <div class="actions">
+            <button id="open-camera" type="button" data-primary>Άνοιξε την πίσω κάμερα</button>
+            <button id="file-mode" type="button">Χρησιμοποίησε την κάμερα του κινητού</button>
+          </div>
+          <p id="camera-status" class="status" aria-live="polite"></p>
+          <p id="camera-error" class="error" aria-live="polite"></p>
+          <div id="camera-choices" class="stack" hidden>
+            <p id="camera-label">Διάλεξε κάμερα</p>
+            <p id="camera-help" class="hint">Κινήσου με τα βέλη. Πάτησε Enter για επιλογή.</p>
+            <ul id="camera-list" class="camera-list" role="listbox" tabindex="0" aria-labelledby="camera-label" aria-describedby="camera-help"></ul>
+          </div>
+          <p id="camera-lens-note" class="notice" hidden></p>
+        </div>
+        <div class="sensor-panel stack">
+          <h3>Ένδειξη γωνίας</h3>
+          <div class="actions">
+            <button id="request-sensor" type="button">Άνοιξε την ένδειξη γωνίας</button>
+            <button id="skip-sensor" type="button">Παράλειψε την ένδειξη</button>
+          </div>
+          <p id="sensor-status" class="hint" aria-live="polite"></p>
+          <h4>Δοκίμασε την ένδειξη αν θέλεις</h4>
+          <div class="sensor-checks">
+            <div class="stack">
+              <p data-placement="flat"></p>
+              <button id="check-flat" type="button" class="sensor-check">Διάβασε τη γωνία στο τραπέζι</button>
+              <p id="read-flat" class="hint" aria-live="polite"></p>
+            </div>
+            <div class="stack">
+              <p data-placement="upright"></p>
+              <button id="check-upright" type="button" class="sensor-check">Διάβασε τη γωνία όρθιο</button>
+              <p id="read-upright" class="hint" aria-live="polite"></p>
+            </div>
+          </div>
+        </div>
+        <div class="actions"><button id="continue-camera" type="button" data-primary disabled>Συνέχισε στη λήψη</button></div>
+      </div>
+    </section>
+
+    <section class="panel guide-step" data-step="3" aria-labelledby="step3-title" hidden>
+      <header class="step-header">
+        <div><h2 id="step3-title" tabindex="-1">Από πάνω</h2><p class="hint step-summary" hidden></p></div>
+        <button class="edit-step" type="button" hidden>Άλλαξε</button>
+      </header>
+      <div class="step-body">
+        <p data-placement="top"></p>
+        <div id="stage-3"></div>
+      </div>
+    </section>
+
+    <section class="panel guide-step" data-step="4" aria-labelledby="step4-title" hidden>
+      <header class="step-header">
+        <div><h2 id="step4-title" tabindex="-1">Από μπροστά, βεντάλια</h2><p class="hint step-summary" hidden></p></div>
+        <button class="edit-step" type="button" hidden>Άλλαξε</button>
+      </header>
+      <div class="step-body">
+        <p data-placement="fan"></p>
+        <div id="stage-4"></div>
+        <p class="hint" data-placement="sameOrientation"></p>
+        <div class="fan-options">
+          <fieldset id="fan-count">
+            <legend>Πόσες λήψεις;</legend>
+            <div class="choices">
+              <label class="choice"><input name="count" type="radio" value="5">5</label>
+              <label class="choice"><input name="count" type="radio" value="8" checked>8</label>
+            </div>
+          </fieldset>
+          <label class="check-field"><input id="auto-capture" type="checkbox" role="switch" checked><span>Αυτόματη λήψη</span></label>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel guide-step" data-step="5" aria-labelledby="step5-title" hidden>
+      <header class="step-header">
+        <div><h2 id="step5-title" tabindex="-1">Από το πλάι</h2><p class="hint step-summary" hidden></p></div>
+        <button class="edit-step" type="button" hidden>Άλλαξε</button>
+      </header>
+      <div class="step-body">
+        <p data-placement="side"></p>
+        <div id="stage-5"></div>
+      </div>
+    </section>
+
+    <section class="panel guide-step" data-step="6" aria-labelledby="step6-title" hidden>
+      <header class="step-header">
+        <div><h2 id="step6-title" tabindex="-1">Έλεγξε τις φωτογραφίες</h2><p class="hint step-summary" hidden></p></div>
+        <button class="edit-step" type="button" hidden>Άλλαξε</button>
+      </header>
+      <div class="step-body">
+        <div id="review-photos"></div>
+        <div class="actions"><button id="continue-review" type="button" data-primary>Συνέχισε στη σήμανση</button></div>
+      </div>
+    </section>
+
+    <section class="panel guide-step" data-step="7" aria-labelledby="step7-title" hidden>
+      <header class="step-header">
+        <div><h2 id="step7-title" tabindex="-1">Σημείωσε και μέτρησε</h2><p class="hint step-summary" hidden></p></div>
+        <button class="edit-step" type="button" hidden>Άλλαξε</button>
+      </header>
+      <div class="step-body" id="measurement-step">
+        <p id="experimental-result" class="edition"></p>
+        <div id="other-views" class="stack"></div>
+        <div class="bench-group stack" aria-labelledby="reference-heading">
+          <h3 id="reference-heading">Επιβεβαίωσε την κάρτα</h3>
+          <div class="columns">
+            <div class="stack">
+              <label class="check-field">
+                <input id="confirm-card" type="checkbox" autocomplete="off" aria-describedby="card-size-note">
+                <span>Η κάρτα μου έχει μέγεθος τραπεζικής κάρτας: 85,60 × 53,98 mm</span>
+              </label>
+              <p id="card-size-note" class="hint">Λάθος μέγεθος κάρτας περνά στην ακτίνα χωρίς καμία προειδοποίηση.</p>
+            </div>
+            <div class="stack" hidden>
+              <label for="diameter">Γνωστή διάμετρος από παχύμετρο (mm)</label>
+              <input id="diameter" class="text-field" type="text" inputmode="decimal" autocomplete="off"
+                aria-describedby="diameter-note diameter-error">
+              <p id="diameter-note" class="hint">Προαιρετική. Γράψε π.χ. 18,42 ή 18.42.</p>
+              <p id="diameter-error" class="error" aria-live="polite"></p>
+            </div>
+          </div>
+        </div>
+    
+        <div class="bench-group stack" aria-labelledby="photos-heading">
+          <h3 id="photos-heading">Φωτογραφίες και σημεία</h3>
+          <p>Διάλεξε μια φωτογραφία της βεντάλιας και βάλε τα σημεία. Για νέα λήψη, πάτησε «Άλλαξε» στον έλεγχο φωτογραφιών.</p>
+          <div class="actions" hidden>
+            <input id="file-picker" type="file" accept="image/*" multiple hidden>
+            <button id="add-photos" type="button" data-primary aria-controls="photo-list" disabled>Πρόσθεσε φωτογραφίες</button>
+          </div>
+          <p id="photo-message" class="hint" aria-live="polite">Διαβάζω τις λήψεις της βεντάλιας…</p>
+          <ul id="photo-list" class="photo-list" aria-label="Φωτογραφίες"></ul>
+    
+          <div id="active-photo" class="editor" hidden>
+            <div class="editor-head">
+              <div class="stack">
+                <h3 id="photo-title">Φωτογραφία</h3>
+                <p id="photo-meta" class="hint"></p>
+              </div>
+              <button id="remove-photo" type="button" hidden>Αφαίρεσε τη φωτογραφία</button>
+            </div>
+            <p id="preview-message" class="notice" aria-live="polite"></p>
+            <div id="editor-tools" class="editor-tools" hidden>
+              <div class="actions" role="group" aria-label="Είδος σημείων">
+                <button id="mark-card" type="button" aria-pressed="true">Σημείωσε την κάρτα</button>
+                <button id="mark-edge" type="button" aria-pressed="false">Σημείωσε την άκρη</button>
+              </div>
+              <div id="card-guide" class="card-guide">
+                <p id="corner-guide">Με την πάνω έδρα ορατή και τη μεγάλη πλευρά οριζόντια, σημάδεψε την κάτω αριστερή γωνία με αυτοκόλλητο ή στυλό. Σε κάθε λήψη, ξεκίνα από το σημάδι. Πήγαινε πρώτα κατά μήκος της μεγάλης πλευράς και συνέχισε αριστερόστροφα, όπως στο σχήμα.</p>
+                <svg class="corner-diagram" viewBox="0 0 192 108" role="img" aria-labelledby="corner-diagram-title"
+                  fill="none" stroke="currentColor">
+                  <title id="corner-diagram-title">Αριστερόστροφη φορά. Από τη σημαδεμένη γωνία 1 στη 2 κατά μήκος της μεγάλης πλευράς, μετά στη 3 και στη 4.</title>
+                  <path class="diagram-line" d="M24 82H168V26H24Z"/>
+                  <path class="diagram-line" d="m92 76 7 6-7 6m70-38 6-7 6 7m-74-18-7-6 7-6M30 55l-6 7-6-7"/>
+                  <circle cx="24" cy="82" r="4" fill="currentColor"/>
+                  <g class="diagram-label" fill="currentColor" stroke="none" text-anchor="middle">
+                    <text x="24" y="103">1</text><text x="168" y="103">2</text>
+                    <text x="168" y="17">3</text><text x="24" y="17">4</text>
+                  </g>
+                </svg>
+              </div>
+              <p id="edge-guide" hidden>Διάλεξε δύο άκρα της καμπύλης, το Α και το Β. Σημείωσε πρώτα το Α, μετά σημεία κατά μήκος της άκρης και τελευταίο το Β. Κράτησε τα ίδια φυσικά άκρα και την ίδια σειρά σε όλες τις φωτογραφίες. Βάλε τουλάχιστον 8 σημεία μαζί με τα άκρα, ιδανικά 12 έως 20.</p>
+    
+              <p id="mark-status" class="status" aria-live="polite"></p>
+              <p id="canvas-guide" class="hint">Πάτησε για σημείο. Σύρε σε κενό χώρο για μετακίνηση ή άνοιξε δύο δάχτυλα για μεγέθυνση. Από το πληκτρολόγιο, κίνησε το σταυρόνημα ή το επιλεγμένο σημείο με τα βέλη. Κράτα Shift για 10 pixel. Πάτησε Enter για νέο σημείο, Page Up ή Page Down για επιλογή και Escape για επιστροφή στο σταυρόνημα.</p>
+              <canvas id="photo-canvas" class="viewer" role="application" tabindex="0" aria-label="Σημείωση φωτογραφίας"
+                aria-describedby="canvas-guide mark-status" aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Enter PageUp PageDown Escape Delete"></canvas>
+              <p id="cursor-readout" class="hint" aria-live="polite"></p>
+    
+              <div class="actions" role="group" aria-label="Μεγέθυνση εικόνας">
+                <button id="zoom-in" type="button">Μεγέθυνε</button>
+                <button id="zoom-out" type="button">Σμίκρυνε</button>
+                <button id="fit-photo" type="button">Δείξε όλη την εικόνα</button>
+              </div>
+              <div class="actions" role="group" aria-label="Μετακίνηση εικόνας">
+                <button type="button" data-pan="-1,0" aria-label="Δείξε πιο αριστερά">Αριστερά</button>
+                <button type="button" data-pan="1,0" aria-label="Δείξε πιο δεξιά">Δεξιά</button>
+                <button type="button" data-pan="0,-1" aria-label="Δείξε πιο πάνω">Πάνω</button>
+                <button type="button" data-pan="0,1" aria-label="Δείξε πιο κάτω">Κάτω</button>
+              </div>
+              <div class="actions" role="group" aria-label="Επεξεργασία σημείων">
+                <button id="previous-point" type="button">Επίλεξε προηγούμενο</button>
+                <button id="next-point" type="button">Επίλεξε επόμενο</button>
+                <button id="clear-selection" type="button">Άφησε την επιλογή</button>
+                <button id="delete-point" type="button">Διάγραψε το σημείο</button>
+                <button id="undo-point" type="button">Αναίρεσε την τελευταία αλλαγή</button>
+              </div>
+              <details class="point-list">
+                <summary>Σημεία και συντεταγμένες</summary>
+                <p class="hint">Pixel της πλήρους εικόνας μετά τον προσανατολισμό. Το x αυξάνεται προς τα δεξιά και το y προς τα κάτω.</p>
+                <div class="columns">
+                  <div><h4>Γωνίες κάρτας</h4><ol id="corner-list"></ol></div>
+                  <div><h4>Σημεία άκρης</h4><ol id="edge-list"></ol></div>
+                </div>
+              </details>
+            </div>
+          </div>
+    
+          <details class="assumptions">
+            <summary>Παραδοχές για την εικόνα</summary>
+            <p>Το κύριο σημείο της κάμερας θεωρείται στο κέντρο της πλήρους εικόνας, μετά τον προσανατολισμό. <span class="formula">cx = W/2, cy = H/2</span>.</p>
+            <p>Όταν όλες οι έτοιμες φωτογραφίες έχουν ισοδύναμη εστιακή 35 mm στο EXIF του JPEG, τη μετατρέπουμε σε pixel και τη συγκρίνουμε με την εστιακή από την κάρτα. Χρησιμοποιούμε τη διαγώνιο 43,27 mm του κάδρου 35 mm. <span class="formula">f_px = f35 · √(W² + H²) / 43,27</span>.</p>
+            <p>Αν έστω μία έτοιμη φωτογραφία δεν έχει εστιακή, υπολογίζουμε μία κοινή εστιακή από τις γωνίες της κάρτας.</p>
+          </details>
+        </div>
+    
+        <div class="bench-group stack" aria-labelledby="measure-heading">
+          <h3 id="measure-heading">Ακτίνα και σύνοψη</h3>
+          <div id="lens-confirmation" class="stack" hidden>
+            <label class="check-field">
+              <input id="confirm-lens" type="checkbox" autocomplete="off" aria-describedby="lens-note">
+              <span>Όλες οι φωτογραφίες είναι από το ίδιο κινητό, με τον ίδιο φακό (1×), χωρίς ζουμ ή περικοπή</span>
+            </label>
+            <p id="lens-note" class="hint">Για την εστιακή από την κάρτα χρειάζονται λοξές λήψεις ίδιων διαστάσεων. Μπορείς να κρατήσεις το κινητό οριζόντια ή κάθετα.</p>
+          </div>
+          <div class="actions">
+            <button id="measure" type="button" disabled>Υπολόγισε την ακτίνα</button>
+          </div>
+          <div id="result-area" class="result-area" aria-live="polite">
+            <p id="fan-quality" class="status"></p>
+            <p id="rounded-warning" class="notice" hidden></p>
+            <p id="measure-status" class="status">Επιβεβαίωσε την κάρτα και ετοίμασε τουλάχιστον 2 φωτογραφίες.</p>
+            <div id="result-details" class="result-area" hidden></div>
+          </div>
+          <div id="summary-area" class="stack" hidden>
+            <div class="actions">
+              <button id="copy-summary" type="button">Αντιγραφή σύνοψης</button>
+            </div>
+            <p id="copy-status" class="status" aria-live="polite"></p>
+            <details id="summary-disclosure">
+              <summary>Δες το κείμενο της σύνοψης</summary>
+              <textarea id="summary-text" class="text-field summary-text" aria-label="Κείμενο σύνοψης" rows="9" readonly></textarea>
+            </details>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="guide-footer">
+      <button id="clear-photos" type="button" hidden>Σβήσε όλες τις φωτογραφίες</button>
+    </footer>
+  </main>
+
+  <div id="capture-station" class="capture-station stack" hidden>
+    <p id="capture-counter" class="counter"></p>
+    <div id="capture-preview-mount"></div>
+    <div id="capture-angle" class="angle-panel">
+      <div class="angle-numbers">
+        <p class="stack"><span class="hint" id="angle-name">Τώρα</span><strong id="angle-now">—</strong></p>
+        <p class="stack"><span class="hint">Ζώνη στόχου</span><strong id="angle-target"></strong></p>
+      </div>
+      <meter id="angle-meter" min="0" max="90" value="0" aria-labelledby="angle-name" aria-describedby="angle-target" hidden></meter>
+      <p id="angle-turn" class="hint" hidden></p>
+      <p id="capture-instruction" class="status"></p>
+    </div>
+    <p id="capture-error" class="notice"></p>
+    <div class="actions">
+      <button id="take-photo" type="button" data-primary>Τράβηξε φωτογραφία</button>
+      <button id="cancel-photo" type="button" hidden>Ακύρωσε τη λήψη</button>
+      <button id="stage-open-camera" type="button" hidden>Άνοιξε την κάμερα</button>
+      <button id="stage-file-mode" type="button" hidden>Χρησιμοποίησε την κάμερα του κινητού</button>
+      <button id="stage-retake" type="button" hidden>Ξαναβγάλε</button>
+      <button id="cancel-retake" type="button" hidden>Γύρνα στην προηγούμενη λήψη</button>
+      <button id="continue-stage" type="button" data-primary hidden>Συνέχισε</button>
+    </div>
+    <input id="capture-file" type="file" accept="image/*" capture="environment" hidden>
+  </div>
+
+  <div id="live-preview" class="live-preview" hidden>
+    <video id="live-video" muted playsinline autoplay aria-label="Ζωντανή εικόνα από την κάμερα"></video>
+    <div id="fake-video" aria-hidden="true" hidden></div>
+    <div id="reticle" class="reticle" aria-hidden="true" hidden><span></span></div>
+  </div>
+
+  <div id="live-announcement" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <dialog id="confirm-action" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-message"></p>
+    <div class="actions">
+      <button id="cancel-action" type="button" autofocus>Άκυρο</button>
+      <button id="confirm-button" type="button" data-primary></button>
+    </div>
+  </dialog>
+  <dialog id="photo-zoom" aria-labelledby="photo-zoom-title">
+    <h2 id="photo-zoom-title"></h2>
+    <div class="photo-zoom-area" id="photo-zoom-area" tabindex="0" aria-label="Προεπισκόπηση φωτογραφίας">
+      <img id="photo-zoom-image" alt="">
+    </div>
+    <div class="actions">
+      <button id="photo-zoom-in" type="button">Μεγέθυνε</button>
+      <button id="photo-zoom-out" type="button">Δείξε όλη την εικόνα</button>
+      <button id="photo-zoom-close" type="button" autofocus>Κλείσε</button>
+    </div>
+  </dialog>
+</body>
+</html>
