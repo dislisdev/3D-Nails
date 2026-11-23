@@ -1,5 +1,5 @@
-// Πειραματικό · Οδηγός λήψης 0.1.0 · έλεγχος λήψεων της σελίδας.
-import { shotsFor } from './guide-model.mjs';
+// Πειραματικό · Οδηγός λήψης 0.1.1 · έλεγχος λήψεων της σελίδας.
+import { shotOutsideGuide, shotsFor } from './guide-model.mjs';
 import { makeThumbnail, shotLabel } from './photo-views.mjs';
 import { possiblySoft } from './sharpness-check.mjs';
 import { CAPTURE_TEXT } from './texts.mjs';
@@ -25,7 +25,23 @@ export function mountReview({ document, guide, zoom }) {
     figure.append(makeThumbnail(document, shot, zoom));
     if (shot.step === 'fan') figure.append(title);
     figure.append(angle);
-    const warnings = [shot.moved && CAPTURE_TEXT.moved, possiblySoft(shot.sharpnessScore) && CAPTURE_TEXT.soft].filter(Boolean);
+    const size = document.createElement('p');
+    size.className = 'hint';
+    const methods = { file: 'Αρχείο', canvas: 'Καρέ βίντεο', takePhoto: 'Φωτογραφία κάμερας' };
+    size.textContent = methods[shot.method] + ' · ' + shot.width + ' × ' + shot.height + ' px';
+    figure.append(size);
+    if (shot.method !== 'file' && shot.moved === null && shot.elevationAtPress !== null) {
+      const missing = document.createElement('p');
+      missing.className = 'hint';
+      missing.textContent = 'Έλειψαν ενδείξεις κίνησης. Έλεγξε την καθαρότητα της εικόνας.';
+      figure.append(missing);
+    }
+    const outside = shotOutsideGuide(shot, state.photos);
+    const warnings = [
+      outside.elevation && 'Η λήψη ξεκίνησε έξω από τη ζώνη ανύψωσης. Ξαναβγάλε τη στη γωνία του στόχου.',
+      outside.turn && 'Η στροφή στο πλάι βγήκε έξω από τον στόχο. Έλεγξε τη θέση και ξαναβγάλε τη λήψη.',
+      shot.moved && CAPTURE_TEXT.moved, possiblySoft(shot.sharpnessScore) && CAPTURE_TEXT.soft,
+    ].filter(Boolean);
     for (const message of warnings) {
       const warning = document.createElement('p');
       warning.className = 'photo-warning';

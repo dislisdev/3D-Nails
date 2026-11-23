@@ -1,4 +1,4 @@
-// Πειραματικό · Οδηγός λήψης 0.1.0 · καθοδήγηση του πακέτου G1.
+// Πειραματικό · Οδηγός λήψης 0.1.1 · καθοδήγηση του πακέτου G1.
 import { createAnnouncer } from './announcements.mjs';
 import { parseDiameter } from './bench/views.mjs';
 import { isCompositeCamera } from './capture.mjs';
@@ -45,6 +45,7 @@ export function mountGuide({ document, guide, clock, demo = false, onState = () 
   const sections = [...document.querySelectorAll('.guide-step')];
   const progress = [...byId('progress').children];
   const preview = byId('live-preview');
+  const video = byId('live-video');
   const station = byId('capture-station');
   const prep = byId('prep-form');
   const dialog = byId('confirm-action');
@@ -77,6 +78,7 @@ export function mountGuide({ document, guide, clock, demo = false, onState = () 
   function renderPrep() {
     const isNail = valueOf('subject') === 'nail';
     byId('object-fields').hidden = isNail;
+    byId('coin-placement').hidden = isNail;
     byId('nail-fields').hidden = !isNail;
     setText(byId('subject-placement'), isNail ? PLACEMENT.nail : PLACEMENT.object);
   }
@@ -144,11 +146,20 @@ export function mountGuide({ document, guide, clock, demo = false, onState = () 
     else mount.append(element);
   }
 
+  function previewSize() {
+    return video.videoWidth > 0 && video.videoHeight > 0
+      ? { width: video.videoWidth, height: video.videoHeight } : state.cameraInfo?.preview;
+  }
+
+  function updatePreviewShape() {
+    const size = previewSize();
+    preview.toggleAttribute('data-portrait', size && size.height > size.width);
+  }
+
   function mountPreview(mount, visible, reticle) {
     if (visible) moveElement(preview, mount);
     preview.hidden = !visible;
-    const size = state.cameraInfo?.preview;
-    preview.toggleAttribute('data-portrait', size && size.height > size.width);
+    updatePreviewShape();
     byId('reticle').hidden = !reticle;
     if (visible && state.cameraMode === 'live') guide.resumeVideo();
   }
@@ -162,8 +173,9 @@ export function mountGuide({ document, guide, clock, demo = false, onState = () 
     const moveFocus = document.activeElement === button && liveCamera;
     button.hidden = liveCamera;
     busy(button, opening, 'Άνοιξε την πίσω κάμερα', 'Περιμένω την κάμερα…');
-    byId('file-mode').hidden = liveCamera || fileMode;
-    const { preview: size, label, devices, selectedId } = state.cameraInfo ?? {};
+    byId('file-mode').hidden = fileMode;
+    const { label, devices, selectedId } = state.cameraInfo ?? {};
+    const size = previewSize();
     let message = opening ? 'Δώσε άδεια κάμερας αν το ζητήσει ο browser.' : '';
     if (liveCamera && size) message = (label ? label + ' · ' : '') + size.width + ' × ' + size.height + ' px στη ζωντανή εικόνα';
     if (fileMode) message = CAPTURE_TEXT.file;
@@ -179,6 +191,7 @@ export function mountGuide({ document, guide, clock, demo = false, onState = () 
 
     const sensor = state.sensor.status;
     const request = byId('request-sensor');
+    const focusSensorCheck = document.activeElement === request && (sensor === 'active' || sensor === 'unavailable');
     request.hidden = sensor === 'active' || sensor === 'unavailable';
     busy(request, sensor === 'requesting', 'Άνοιξε την ένδειξη γωνίας', 'Περιμένω την άδεια…');
     byId('skip-sensor').hidden = ['skipped', 'denied', 'unavailable'].includes(sensor);
@@ -192,6 +205,7 @@ export function mountGuide({ document, guide, clock, demo = false, onState = () 
           (state.completed.has(2) || ['skipped', 'denied', 'unavailable', 'no-data'].includes(sensor) ? ' · Παραλείφθηκε' : '');
       setText(byId('read-' + position), readout);
     }
+    if (focusSensorCheck) (sensor === 'active' ? byId('check-flat') : byId('continue-camera')).focus({ preventScroll: true });
   }
 
   function drawGuidance() {
@@ -202,6 +216,8 @@ export function mountGuide({ document, guide, clock, demo = false, onState = () 
     meter.hidden = !sample;
     const instruction = captureGuidance(state, slot, sample);
     setText(byId('angle-now'), angle(sample?.elevation));
+    byId('angle-roll').hidden = !Number.isFinite(sample?.roll);
+    if (Number.isFinite(sample?.roll)) setText(byId('angle-roll'), 'Κλίση οθόνης στο πλάι ' + angle(sample.roll));
     setText(byId('capture-instruction'), instruction);
     if (sample) {
       const { min, max, elevation } = slot.target;
@@ -213,10 +229,11 @@ export function mountGuide({ document, guide, clock, demo = false, onState = () 
       meter.value = sample.elevation;
       meter.setAttribute('aria-valuetext', angle(sample.elevation));
     }
-    const turn = headingAgainstFan(sample?.alpha, state.photos);
+    const turn = headingAgainstFan(sample, state.photos);
     const formatTurn = angle(Math.abs(turn));
     let turnHint = '';
     if (slot.step === 'fan' && slot.number > 1 && turn !== null) turnHint = 'Στροφή από την πρώτη λήψη ' + formatTurn + ' · Ενδεικτική';
+    if (slot.step === 'fan' && slot.number > 1 && turn === null) turnHint = 'Χωρίς ένδειξη στροφής. Ανέβα στην ίδια ευθεία μπροστά από την άκρη.';
     if (slot.step === 'side') {
       turnHint = (turn === null ? '' : 'Στροφή από τη βεντάλια ' + formatTurn + ' · ') + 'Στόχος 90° ± 15° από όποια πλευρά';
     }
@@ -247,7 +264,7 @@ export function mountGuide({ document, guide, clock, demo = false, onState = () 
         : 'Ελήφθη ' + n + ' από ' + count;
     setText(byId('capture-counter'), counter);
     byId('capture-angle').hidden = !slot;
-    setText(byId('angle-name'), step === 3 ? 'Αλφάδι · Τώρα' : 'Τώρα');
+    setText(byId('angle-name'), step === 3 ? 'Αλφάδι · Ανύψωση' : 'Ανύψωση τώρα');
     if (slot) {
       const targetText = step === 3 ? '90° ± 5°'
         : step === 4 ? angle(slot.target.elevation) + ' ± 2°'
@@ -261,9 +278,11 @@ export function mountGuide({ document, guide, clock, demo = false, onState = () 
     busy(shutter, state.busy, isFile ? 'Τράβηξε με την κάμερα του κινητού' : 'Τράβηξε φωτογραφία', 'Βγάζω φωτογραφία…');
     byId('cancel-photo').hidden = !state.busy || !isFile;
     const reopen = byId('stage-open-camera');
-    reopen.hidden = !slot || isLive || isFile;
+    const focusShutter = (document.activeElement === reopen && isLive)
+      || (document.activeElement === byId('stage-file-mode') && isFile);
+    reopen.hidden = !slot || isLive || state.busy;
     busy(reopen, opening, 'Άνοιξε την κάμερα', 'Περιμένω την κάμερα…');
-    byId('stage-file-mode').hidden = !slot || isFile || isLive;
+    byId('stage-file-mode').hidden = !slot || isFile || state.busy;
     byId('stage-retake').hidden = Boolean(slot) || step === 4;
     byId('cancel-retake').hidden = !state.retake;
     byId('cancel-retake').disabled = state.busy;
@@ -271,6 +290,7 @@ export function mountGuide({ document, guide, clock, demo = false, onState = () 
     setText(byId('continue-stage'), step === 3 ? 'Συνέχισε στη βεντάλια'
       : step === 4 ? 'Συνέχισε στη λήψη από το πλάι' : 'Συνέχισε στον έλεγχο');
     if (moveFocus) byId('continue-stage').focus({ preventScroll: true });
+    else if (focusShutter && slot) shutter.focus({ preventScroll: true });
     const warning = state.captureMessage || (slot ? state.cameraError : '');
     const error = byId('capture-error');
     setText(error, warning || (slot && isFile ? CAPTURE_TEXT.file : ''));
@@ -281,8 +301,11 @@ export function mountGuide({ document, guide, clock, demo = false, onState = () 
         option.checked = Number(option.value) === state.fanCount;
         option.disabled = Boolean(state.retake) || state.busy;
       }
-      byId('auto-capture').checked = state.autoCapture;
-      byId('auto-capture').disabled = isFile || state.busy;
+      const canAuto = isLive && state.sensor.status === 'active';
+      byId('auto-capture').checked = canAuto && state.autoCapture;
+      byId('auto-capture').disabled = !canAuto || state.busy;
+      byId('restart-fan').hidden = n === 0;
+      byId('restart-fan').disabled = state.busy;
     }
     drawGuidance();
   }
@@ -334,6 +357,10 @@ export function mountGuide({ document, guide, clock, demo = false, onState = () 
   }
 
   prep.addEventListener('submit', submitPrep);
+  video.addEventListener('resize', () => {
+    if (state.step === 2 && state.cameraMode === 'live') renderCamera();
+    else updatePreviewShape();
+  });
   prep.addEventListener('input', () => { clearPrepError(); renderPrep(); });
   for (const [index, element] of sections.entries()) {
     const button = element.querySelector('.edit-step');
@@ -344,7 +371,7 @@ export function mountGuide({ document, guide, clock, demo = false, onState = () 
   }
   const bind = (id, listener) => byId(id).addEventListener('click', listener);
   const open = () => {
-    if (state.cameraMode !== 'opening') void guide.openCamera(state.cameraInfo?.selectedId);
+    if (state.cameraMode !== 'opening') void guide.openCamera(state.cameraMode === 'error' ? undefined : state.cameraInfo?.selectedId);
   };
   bind('open-camera', open);
   bind('stage-open-camera', open);
@@ -362,6 +389,11 @@ export function mountGuide({ document, guide, clock, demo = false, onState = () 
     if (shot) guide.retake(shot.id);
   });
   bind('cancel-retake', guide.cancelRetake);
+  bind('restart-fan', () => confirm({
+    title: 'Ξεκίνα ξανά τη βεντάλια',
+    message: 'Θα σβήσουν η βεντάλια, η πλάγια λήψη και τα σημεία τους. Η λήψη από πάνω θα μείνει.',
+    label: 'Σβήσε και ξεκίνα τη βεντάλια', action: () => guide.restartFan(),
+  }));
 
   byId('auto-capture').addEventListener('change', event => guide.setAutoCapture(event.target.checked));
   byId('fan-count').addEventListener('change', event => {

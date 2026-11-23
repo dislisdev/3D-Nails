@@ -1,4 +1,5 @@
 import { orientedFrame, readPhotoMetadata } from './views.mjs';
+import { waitFor } from '../probe/browser.mjs';
 
 // Ο αποκωδικοποιητής παίρνει τα pixel του JPEG χωρίς τα τμήματα APP1.
 // Έτσι το Canvas εφαρμόζει μία φορά τον προσανατολισμό που διαβάσαμε.
@@ -26,49 +27,68 @@ export function jpegWithoutApp1(file, bytes) {
   return new Blob(parts, { type: 'image/jpeg' });
 }
 
-async function loadImage(blob) {
+async function loadImage(blob, signal = new AbortController().signal) {
+  signal.throwIfAborted();
   const url = URL.createObjectURL(blob);
+  const image = new Image();
   try {
-    const image = new Image();
-    await new Promise((resolve, reject) => {
+    await waitFor(new Promise((resolve, reject) => {
       image.onload = resolve;
       image.onerror = reject;
       image.src = url;
-    });
+    }), signal);
     return image;
+  } catch (error) {
+    image.removeAttribute?.('src');
+    throw error;
   } finally {
+    image.onload = null;
+    image.onerror = null;
     URL.revokeObjectURL(url);
   }
+}
+
+export async function jpegFrame(file, signal = new AbortController().signal) {
+  const signature = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+  signal.throwIfAborted();
+  if (signature[0] !== 0xff || signature[1] !== 0xd8) return null;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  signal.throwIfAborted();
+  const { rawWidth, rawHeight, orientation, focal35Mm, focalLengthMm } = readPhotoMetadata(bytes, { includeLens: true });
+  if (!rawWidth || !rawHeight) throw new Error('Λείπουν οι διαστάσεις του αρχείου JPEG.');
+  const { width, height, transform } = orientedFrame(rawWidth, rawHeight, orientation);
+  return { width, height, focal35Mm, focalLengthMm,
+    preview: { blob: jpegWithoutApp1(file, bytes), rawWidth, rawHeight, transform } };
+}
+
+export function nativeFrame(blob, width, height) {
+  return { width, height, focal35Mm: null, focalLengthMm: null,
+    preview: { blob, rawWidth: width, rawHeight: height, transform: orientedFrame(width, height).transform } };
 }
 
 export async function preparePhoto(file, id) {
   const photo = { id, width: null, height: null, focal35Mm: null, cornersPx: [], edgePx: [], history: [] };
   try {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const { format, rawWidth, rawHeight, orientation, focal35Mm } = readPhotoMetadata(bytes);
-    photo.focal35Mm = focal35Mm;
-    if (rawWidth !== null && rawHeight !== null) {
-      const { width, height, transform } = orientedFrame(rawWidth, rawHeight, orientation);
-      Object.assign(photo, { width, height });
-      return { photo, preview: { blob: jpegWithoutApp1(file, bytes), rawWidth, rawHeight, transform } };
-    } else if (format !== 'jpeg') {
+    let frame = await jpegFrame(file);
+    if (!frame) {
       const image = await loadImage(file);
       const { naturalWidth: width, naturalHeight: height } = image;
-      if (width > 0 && height > 0) {
-        Object.assign(photo, { width, height });
-        const { transform } = orientedFrame(width, height);
-        return { photo, preview: { blob: file, rawWidth: width, rawHeight: height, transform } };
-      }
+      image.removeAttribute?.('src');
+      if (!width || !height) throw new Error('Λείπουν οι διαστάσεις της εικόνας.');
+      frame = nativeFrame(file, width, height);
     }
+    const { preview, ...metadata } = frame;
+    return { photo: { ...photo, ...metadata }, preview };
   } catch {
     photo.decodeFailed = true;
   }
   return { photo, preview: null };
 }
 
-export async function decodePreview({ blob, rawWidth, rawHeight, transform }) {
-  const image = await loadImage(blob);
+export async function decodePreview({ blob, rawWidth, rawHeight, transform }, signal) {
+  const image = await loadImage(blob, signal);
   if (image.naturalWidth !== rawWidth || image.naturalHeight !== rawHeight) {
+    image.removeAttribute?.('src');
     throw new Error('Οι διαστάσεις της εμφανιζόμενης εικόνας διαφέρουν από τις διαστάσεις του αρχείου.');
   }
   return { image, transform };

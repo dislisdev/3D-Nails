@@ -1,12 +1,24 @@
-// Πειραματικό · Οδηγός λήψης 0.1.0 · ροή του πακέτου G1.
+// Πειραματικό · Οδηγός λήψης 0.1.1 · ροή του πακέτου G1.
 import { parseDiameter } from './bench/views.mjs';
 import { cameraFailure, createCaptureTrace } from './capture.mjs';
 import { alphaDelta, createStabilityGate } from './sensors.mjs';
 import { CAPTURE_RULES, fanTargets, FAN_COUNTS, inTarget, SIDE_TARGET, TOP_TARGET } from './targets.mjs';
 import { CAPTURE_TEXT } from './texts.mjs';
+import { fanCameraIssue, FAN_ISSUE_TEXT } from './fan-camera.mjs';
 
 export const PHOTO_STEPS = Object.freeze({ 3: 'top', 4: 'fan', 5: 'side' });
 const CHECK_TARGETS = Object.freeze({ flat: 90, upright: 0 });
+
+export function bindPageLifecycle(guide, document, host) {
+  const visibility = () => guide.setBackground(document.hidden);
+  document.addEventListener('visibilitychange', visibility);
+  host.addEventListener('pagehide', event => {
+    guide.setBackground(true);
+    if (!event.persisted) guide.release();
+  });
+  host.addEventListener('pageshow', visibility);
+  visibility();
+}
 
 function plan(name, targets) {
   return Object.freeze(targets.map((target, index) => Object.freeze({
@@ -22,8 +34,20 @@ export function shotsFor(state, step) {
   return plannedShots(step, state.fanCount).map(slot => state.photos.get(slot.id)).filter(Boolean);
 }
 
-export function headingAgainstFan(alpha, photos) {
-  return alphaDelta(alpha, photos.get('fan-1')?.alpha);
+export function headingAgainstFan(sample, photos) {
+  const first = photos.get('fan-1');
+  if (sample?.headingFrame == null || first?.headingFrame !== sample.headingFrame) return null;
+  return alphaDelta(sample.heading, first.heading);
+}
+
+export function shotOutsideGuide(shot, photos) {
+  const turn = headingAgainstFan(shot, photos);
+  return {
+    elevation: Number.isFinite(shot.elevationAtPress) && !inTarget(shot.elevationAtPress, shot.target),
+    turn: turn !== null && (shot.step === 'side'
+      ? Math.abs(Math.abs(turn) - CAPTURE_RULES.sideTurnDeg) > CAPTURE_RULES.sideTurnToleranceDeg
+      : shot.step === 'fan' && Math.abs(turn) > CAPTURE_RULES.frontTurnDeg),
+  };
 }
 
 function measureCheck(expected) {
@@ -64,6 +88,8 @@ export function createGuide({ camera, sensors, clock, urls = URL }) {
   let filePending = false;
   let openAbort;
   let sensorRequest = 0;
+  let headingFrame = 0;
+  let lastFrame;
   let stopSensor;
   let sensorTimer;
   let staleTimer;
@@ -138,7 +164,7 @@ export function createGuide({ camera, sensors, clock, urls = URL }) {
   }
 
   async function openCamera(deviceId) {
-    if (state.step < 2 || state.step > 5 || state.busy) return false;
+    if (background || state.step < 2 || state.step > 5 || state.busy) return false;
     closeCamera();
     const controller = new AbortController();
     openAbort = controller;
@@ -151,6 +177,7 @@ export function createGuide({ camera, sensors, clock, urls = URL }) {
         signal: controller.signal,
         onInterrupted: () => {
           if (openAbort !== controller) return;
+          abortPhoto();
           closeCamera();
           state.cameraError = 'Η ζωντανή εικόνα σταμάτησε. Άνοιξε ξανά την κάμερα ή χρησιμοποίησε την κάμερα του κινητού.';
           emit();
@@ -180,6 +207,8 @@ export function createGuide({ camera, sensors, clock, urls = URL }) {
 
   function stopReadingSensors() {
     sensorRequest++;
+    headingFrame++;
+    lastFrame = undefined;
     stopSensor?.();
     stopSensor = null;
     clock.clearTimeout(sensorTimer);
@@ -197,12 +226,23 @@ export function createGuide({ camera, sensors, clock, urls = URL }) {
       return;
     }
     gate.reset();
-    emit('sample');
+    if (state.sensor.status === 'active') {
+      state.sensor.status = 'no-data';
+      emit();
+    } else emit('sample');
   }
 
   function receiveSample(sample) {
     if (background || !Number.isFinite(sample.elevation)) return;
-    latest = { ...sample, at: clock.now() };
+    const now = clock.now();
+    const at = sample.at ?? now;
+    if (!Number.isFinite(at) || now - at >= CAPTURE_RULES.sampleGapMs || at > now || (latest && at < latest.at)) return;
+    if (sample.frame !== lastFrame) {
+      headingFrame++;
+      lastFrame = sample.frame;
+      gate.reset();
+    }
+    latest = { ...sample, at, headingFrame };
     const changed = state.sensor.status !== 'active';
     state.sensor.status = 'active';
     state.sensor.rateSource = sample.rateSource ?? null;
@@ -212,10 +252,10 @@ export function createGuide({ camera, sensors, clock, urls = URL }) {
 
     if (state.step === 4 && state.autoCapture && !state.busy && !interactionPaused && state.cameraMode === 'live' && camera.ready()) {
       const slot = currentSlot();
-      const turn = headingAgainstFan(latest.alpha, state.photos);
+      const turn = headingAgainstFan(latest, state.photos);
       const drifted = slot?.number > 1 && turn !== null && Math.abs(turn) > CAPTURE_RULES.frontTurnDeg;
       if (slot && !drifted) {
-        if (gate.observe(latest, slot.target)) void takePhoto();
+        if (gate.observe(latest, slot.target)) void takePhoto(true);
       } else gate.reset();
     } else {
       gate.reset();
@@ -271,7 +311,13 @@ export function createGuide({ camera, sensors, clock, urls = URL }) {
 
   function setFanCount(count) {
     if (!FAN_COUNTS.includes(count) || state.step !== 4 || state.busy || state.retake || count === state.fanCount) return false;
+    return restartFan(count);
+  }
+
+  function restartFan(count = state.fanCount) {
+    if (!FAN_COUNTS.includes(count) || state.step !== 4 || state.busy) return false;
     removeShots(4);
+    state.retake = null;
     state.fanCount = count;
     state.lastTaken = null;
     state.captureMessage = '';
@@ -286,9 +332,9 @@ export function createGuide({ camera, sensors, clock, urls = URL }) {
     emit();
   }
 
-  async function takePhoto() {
+  async function takePhoto(automatic = false) {
     const slot = currentSlot();
-    if (!slot || state.busy || !['live', 'file'].includes(state.cameraMode)) return false;
+    if (background || !slot || state.busy || !['live', 'file'].includes(state.cameraMode)) return false;
     const fromFile = state.cameraMode === 'file';
     const controller = new AbortController();
     const { signal } = controller;
@@ -337,26 +383,31 @@ export function createGuide({ camera, sensors, clock, urls = URL }) {
       }
       const { thumbnail, sharpnessScore, width, height } = dimensions;
       const previous = state.photos.get(slot.id);
+      const shot = {
+        ...slot, ...movement, width, height, method: acquired.method, blob: acquired.blob,
+        camera: fromFile ? null : acquired.camera ?? state.cameraInfo,
+        focal35Mm: dimensions.focal35Mm ?? null,
+        focalLengthMm: dimensions.focalLengthMm ?? null,
+        preview: dimensions.preview,
+        sharpnessScore: Number.isFinite(sharpnessScore) ? sharpnessScore : null,
+      };
+      if (slot.step === 'fan') {
+        const others = shotsFor(state, 4).filter(other => other.id !== slot.id);
+        const issue = acquired.trackIssue ?? fanCameraIssue([...others, shot]);
+        if (issue) {
+          state.captureMessage = FAN_ISSUE_TEXT[issue];
+          return false;
+        }
+      }
       const url = urls.createObjectURL(acquired.blob);
       let thumbUrl = null;
       try {
         if (thumbnail instanceof Blob && thumbnail.size) thumbUrl = urls.createObjectURL(thumbnail);
       } catch {
-        // Review can show the original when the thumbnail could not be kept.
+        // The review offers an explicit open button without loading the original.
       }
       if (previous) revokeShot(previous);
-      state.photos.set(slot.id, {
-        ...slot,
-        ...movement,
-        width,
-        height,
-        sharpnessScore: Number.isFinite(sharpnessScore) ? sharpnessScore : null,
-        method: acquired.method,
-        camera: fromFile ? null : state.cameraInfo,
-        blob: acquired.blob,
-        url,
-        thumbUrl,
-      });
+      state.photos.set(slot.id, { ...shot, url, thumbUrl });
       clearReview();
       state.lastTaken = { number: slot.number, at: clock.now() };
       state.captureMessage = movement.moved ? CAPTURE_TEXT.moved : '';
@@ -371,6 +422,7 @@ export function createGuide({ camera, sensors, clock, urls = URL }) {
       return false;
     } finally {
       if (captureAbort === controller) {
+        if (automatic && state.captureMessage && !state.lastTaken) state.autoCapture = false;
         captureAbort = null;
         trace = null;
         filePending = false;
@@ -446,7 +498,8 @@ export function createGuide({ camera, sensors, clock, urls = URL }) {
     background = hidden;
     latest = null;
     gate.reset();
-    if (hidden && state.cameraMode === 'live') {
+    if (hidden) headingFrame++;
+    if (hidden && (state.cameraMode === 'live' || state.cameraMode === 'opening')) {
       if (!filePending) abortPhoto();
       closeCamera();
       state.cameraError = 'Η κάμερα έκλεισε όσο η σελίδα ήταν στο φόντο. Άνοιξέ την ξανά για να συνεχίσεις.';
@@ -463,7 +516,7 @@ export function createGuide({ camera, sensors, clock, urls = URL }) {
 
   return {
     state, prepare, openCamera, useFileMode, requestSensor, skipSensor, checkSensor, latestSample, currentSlot,
-    setFanCount, setAutoCapture, takePhoto, cancelPhoto, advance, edit, retake, cancelRetake,
+    setFanCount, restartFan, setAutoCapture, takePhoto, cancelPhoto, advance, edit, retake, cancelRetake,
     clearPhotos, setBackground, release,
     pauseAutoCapture(paused) {
       interactionPaused = paused;
@@ -483,7 +536,7 @@ export function captureGuidance(state, slot, sample) {
   if (state.cameraMode === 'file') return CAPTURE_TEXT.noAngle;
   if (state.cameraMode !== 'live') return '';
   if (!sample) return state.sensor.status === 'active' ? CAPTURE_TEXT.waitingAngle : CAPTURE_TEXT.noAngle;
-  const turn = headingAgainstFan(sample.alpha, state.photos);
+  const turn = headingAgainstFan(sample, state.photos);
   if (slot.step === 'fan' && slot.number > 1 && turn !== null && Math.abs(turn) > CAPTURE_RULES.frontTurnDeg) {
     return state.subject === 'nail' ? CAPTURE_TEXT.fanTurn : 'Έστριψες στο πλάι. Γύρνα στην ευθεία της άκρης.';
   }

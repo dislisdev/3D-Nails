@@ -1,23 +1,28 @@
-// Πειραματικό · Οδηγός λήψης 0.1.0 · προέλευση γωνιών DeviceOrientation (W3C).
+// Πειραματικό · Οδηγός λήψης 0.1.1 · προέλευση γωνιών DeviceOrientation (W3C).
 import { CAPTURE_RULES, inTarget } from './targets.mjs';
 
 const radians = Math.PI / 180;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
-export function cameraAngles({ alpha, beta, gamma }) {
+export function cameraAngles({ alpha, beta, gamma }, screenAngle = 0) {
   if (!Number.isFinite(beta) || !Number.isFinite(gamma)) return null;
   // R = Rz(α) Rx(β) Ry(γ). Its last row is world-up expressed in device axes.
   // The camera points along device −z. Its downward angle is asin(Rzz).
   // In the image plane, atan2(Rzx, Rzy) measures world-up from screen +y.
   const cosBeta = Math.cos(beta * radians);
-  const x = -cosBeta * Math.sin(gamma * radians);
+  const sinGamma = Math.sin(gamma * radians);
+  const cosGamma = Math.cos(gamma * radians);
+  const x = -cosBeta * sinGamma;
   const y = Math.sin(beta * radians);
-  const z = cosBeta * Math.cos(gamma * radians);
+  const z = cosBeta * cosGamma;
   const elevation = Math.asin(clamp(z, -1, 1)) / radians;
+  const hasHorizon = Math.abs(elevation) < 70;
   return {
     elevation,
-    roll: elevation < 70 && Math.hypot(x, y) > Number.EPSILON ? Math.atan2(x, y) / radians : null,
-    alpha: Number.isFinite(alpha) ? alpha : null,
+    roll: hasHorizon ? alphaDelta(Math.atan2(x, y) / radians, screenAngle) : null,
+    // Horizontal projection of the optical axis −Rz(α) Rx(β) Ry(γ) z.
+    heading: hasHorizon && Number.isFinite(alpha)
+      ? alphaDelta(alpha + Math.atan2(sinGamma, y * cosGamma) / radians, 0) : null,
   };
 }
 
@@ -40,13 +45,18 @@ function orientationQuaternion({ alpha, beta, gamma }) {
   ];
 }
 
-export function orientationRate(previous, current, elapsedMs) {
-  if (!(elapsedMs > 0) || elapsedMs > CAPTURE_RULES.sampleGapMs) return null;
+export function orientationDifference(previous, current) {
   const a = orientationQuaternion(previous);
   const b = orientationQuaternion(current);
   if (!a || !b) return null;
   const dot = a.reduce((sum, component, index) => sum + component * b[index], 0);
-  return 2 * Math.acos(clamp(Math.abs(dot), 0, 1)) / radians * 1000 / elapsedMs;
+  return 2 * Math.acos(clamp(Math.abs(dot), 0, 1)) / radians;
+}
+
+export function orientationRate(previous, current, elapsedMs) {
+  if (!(elapsedMs > 0) || elapsedMs > CAPTURE_RULES.sampleGapMs) return null;
+  const angle = orientationDifference(previous, current);
+  return angle === null ? null : angle * 1000 / elapsedMs;
 }
 
 export function createStabilityGate(clock) {
@@ -59,10 +69,11 @@ export function createStabilityGate(clock) {
   }
 
   function observe(sample, target) {
-    const at = clock.now();
+    const now = clock.now();
+    const at = sample?.at ?? now;
     const elevation = sample?.elevation;
     const rate = sample?.rotationRate;
-    if (!inTarget(elevation, target) ||
+    if (at > now || now - at >= CAPTURE_RULES.sampleGapMs || !inTarget(elevation, target) ||
         !Number.isFinite(rate) || rate < 0 || rate >= CAPTURE_RULES.rotationRateDegPerSecond) {
       reset();
       return false;
@@ -119,26 +130,43 @@ export function createBrowserSensors({ host, clock }) {
     let previous;
     let gyro;
     let peakRate = 0;
-    const onMotion = ({ rotationRate }) => {
+    function sampleTime(event) {
+      const now = clock.now();
+      let at = event.timeStamp;
+      if (!host.performance || !Number.isFinite(at) || at <= 0) return now;
+      if (at > 1e12) at -= host.performance.timeOrigin;
+      return at <= now && now - at < CAPTURE_RULES.sampleGapMs ? at : null;
+    }
+    const onMotion = event => {
+      const { rotationRate } = event;
+      const at = sampleTime(event);
+      if (at === null) return;
       const components = [rotationRate?.alpha, rotationRate?.beta, rotationRate?.gamma];
-      gyro = components.every(Number.isFinite) ? { at: clock.now(), rate: Math.hypot(...components) } : null;
+      gyro = components.every(Number.isFinite) ? { at, rate: Math.hypot(...components) } : null;
       if (gyro) peakRate = Math.max(peakRate, gyro.rate);
     };
     const onOrientation = event => {
-      const angles = cameraAngles(event);
-      if (!angles) return;
-      const at = clock.now();
+      const screenAngle = host.screen?.orientation?.angle ?? host.orientation ?? null;
+      const angles = cameraAngles(event, screenAngle);
+      const at = sampleTime(event);
+      if (!angles || at === null || (previous && at < previous.at)) return;
       const raw = { alpha: event.alpha, beta: event.beta, gamma: event.gamma };
-      const gyroIsFresh = gyro && at - gyro.at <= CAPTURE_RULES.sampleGapMs;
-      const estimated = previous ? orientationRate(previous.raw, raw, at - previous.at) : null;
-      previous = { at, raw };
-      const rotationRate = gyroIsFresh ? Math.max(peakRate, gyro.rate) : estimated;
+      const frame = event.absolute === true ? 'absolute' : 'relative';
+      const gyroIsFresh = gyro && Math.abs(at - gyro.at) < CAPTURE_RULES.sampleGapMs;
+      const estimated = previous?.frame === frame ? orientationRate(previous.raw, raw, at - previous.at) : null;
+      previous = { at, raw, frame };
+      const gyroRate = gyroIsFresh ? Math.max(peakRate, gyro.rate) : null;
+      const useGyro = gyroRate !== null && gyroRate >= (estimated ?? 0);
+      const rotationRate = useGyro ? gyroRate : estimated;
       peakRate = 0;
       listener({
         ...angles,
         at,
+        screenAngle,
+        frame,
+        deviceAngles: raw,
         rotationRate,
-        rateSource: gyroIsFresh ? 'devicemotion' : estimated === null ? null : 'deviceorientation',
+        rateSource: useGyro ? 'devicemotion' : estimated === null ? null : 'deviceorientation',
       });
     };
     host.addEventListener('devicemotion', onMotion);

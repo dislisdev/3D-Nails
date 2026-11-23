@@ -30,6 +30,18 @@ function cameraType(label) {
   return GENERIC_REAR.test(text) ? 'rear' : 'unknown';
 }
 
+// Hardware labels can include an owner's device name. Export only known classes.
+export function summaryCameraLabel(label) {
+  const text = normalizedCameraLabel(cameraLabel(label));
+  if (!text) return null;
+  const side = REAR.test(text) ? 'Πίσω ' : '';
+  if (FRONT.test(text)) return 'Μπροστινή κάμερα';
+  for (const [pattern, name] of [[TRIPLE, 'τριπλή'], [DUAL, 'διπλή'], [ULTRA, 'υπερευρυγώνια'], [TELE, 'τηλεφακός'], [WIDE, 'κύρια']]) {
+    if (pattern.test(text)) return (side + (pattern === TELE ? name : name + ' κάμερα')).trim();
+  }
+  return side ? 'Πίσω κάμερα' : 'Κάμερα';
+}
+
 export function canChooseMain(camera) {
   return Boolean(camera.deviceId) && ['wide', 'rear', 'unknown'].includes(camera.type);
 }

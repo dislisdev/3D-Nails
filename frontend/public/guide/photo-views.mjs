@@ -1,4 +1,4 @@
-// Πειραματικό · Οδηγός λήψης 0.1.0 · φωτογραφίες από αυτή τη σελίδα.
+// Πειραματικό · Οδηγός λήψης 0.1.1 · φωτογραφίες από αυτή τη σελίδα.
 const viewNames = { top: 'Από πάνω', fan: 'Βεντάλια', side: 'Από το πλάι' };
 
 export function shotLabel(shot) {
@@ -65,14 +65,18 @@ export function mountPhotoZoom({ document, guide }) {
 
 export function makeThumbnail(document, shot, zoom) {
   const button = document.createElement('button');
-  const image = document.createElement('img');
   button.type = 'button';
   button.className = 'thumbnail';
   button.setAttribute('aria-label', 'Μεγέθυνε τη φωτογραφία «' + shotLabel(shot) + '»');
-  image.alt = '';
-  image.src = shot.thumbUrl ?? shot.url;
-  image.loading = 'lazy';
-  button.append(image);
+  if (shot.thumbUrl) {
+    const image = document.createElement('img');
+    image.alt = '';
+    image.src = shot.thumbUrl;
+    image.loading = 'lazy';
+    button.append(image);
+  } else {
+    button.textContent = 'Άνοιξε τη φωτογραφία';
+  }
   button.addEventListener('click', () => zoom.open(shot, button));
   return button;
 }

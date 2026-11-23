@@ -23,7 +23,14 @@ function values(rows) {
 }
 
 function sequence(values) {
-  return values.map(item => value(item)).join(' · ');
+  return values.map(diagnostic).join(' · ');
+}
+
+const shortNumber = new Intl.NumberFormat('el-GR', { maximumFractionDigits: 3, useGrouping: false });
+function diagnostic(amount) {
+  if (!Number.isFinite(amount)) return 'Δεν δίνεται';
+  if (amount !== 0 && Math.abs(amount) < 0.0005) return '≈0';
+  return shortNumber.format(Number(amount.toPrecision(3)));
 }
 
 function diagnostics(result, included) {
@@ -43,24 +50,24 @@ function diagnostics(result, included) {
     row.append(label);
     const content = row.insertCell();
     content.append(values([
-      ['Σφάλμα κάρτας (px)', value(data.cardRmsPx)],
-      ['Σφάλμα άκρης (px)', value(data.edgeRmsPx)],
-      ['Απόσταση άκρου Α (px)', value(data.endMissPx[0])],
-      ['Απόσταση άκρου Β (px)', value(data.endMissPx[1])],
+      ['Σφάλμα κάρτας (px)', diagnostic(data.cardRmsPx)],
+      ['Σφάλμα άκρης (px)', diagnostic(data.edgeRmsPx)],
+      ['Απόσταση άκρου Α (px)', diagnostic(data.endMissPx[0])],
+      ['Απόσταση άκρου Β (px)', diagnostic(data.endMissPx[1])],
     ]));
     const extra = element('details');
     const extraValues = [
-      ['Μέση απόκλιση άκρης (px)', value(data.bow.meanPx)],
-      ['Ομαλή απόκλιση (px)', value(data.bow.rmsPx)],
-      ['Όρος συνημιτόνου (px)', value(data.bow.cosPx)],
-      ['Όρος ημιτόνου (px)', value(data.bow.sinPx)],
+      ['Μέση απόκλιση άκρης (px)', diagnostic(data.bow.meanPx)],
+      ['Ομαλή απόκλιση (px)', diagnostic(data.bow.rmsPx)],
+      ['Όρος συνημιτόνου (px)', diagnostic(data.bow.cosPx)],
+      ['Όρος ημιτόνου (px)', diagnostic(data.bow.sinPx)],
       ['Κέντρο κάμερας (mm)', sequence(data.centerMm)],
       ['Στροφή κάμερας', sequence(data.rotation)],
       ['Αποκλίσεις σημείων (px)', sequence(data.residualsPx)],
       ['Θέσεις κατά μήκος του τόξου', sequence(data.phase)],
     ];
     if (result.leaveOneOut !== null) {
-      extraValues.push(['Κοινή ακτίνα χωρίς τη φωτογραφία (mm)', value(result.leaveOneOut.radiiMm[i])]);
+      extraValues.push(['Κοινή ακτίνα χωρίς τη φωτογραφία (mm)', diagnostic(result.leaveOneOut.radiiMm[i])]);
     }
     extra.append(element('summary', 'Περισσότεροι αριθμοί'), values(extraValues));
     content.append(extra);
@@ -90,6 +97,17 @@ export function renderResult(details, result, included, knownDiameterMm) {
   const source = focalLabel(result);
   if (!result.ok) {
     details.replaceChildren(provenance, element('p', refusalMessage(result.code), 'notice'));
+    if (result.code === 'CARD_ORDER_UNCERTAIN') {
+      const order = result.cardOrder;
+      if (order?.oppositeCorner?.shiftedPhotoIds?.length) {
+        const ids = order.oppositeCorner.shiftedPhotoIds.join(', ');
+        details.append(element('p', 'Σύγκρινε με τις υπόλοιπες λήψεις την πρώτη σημαδεμένη γωνία στις φωτογραφίες ' + ids + '.', 'hint'));
+      } else if (order?.reason === 'winding') {
+        details.append(element('p', 'Ξανασημείωσε τις τέσσερις γωνίες στη φωτογραφία ' + order.photoId + '.', 'hint'));
+      } else if (!order?.alternatives?.length && (order?.submittedFeasible === false || order?.focalFits === false)) {
+        details.append(element('p', 'Οι γωνίες δεν δίνουν κοινή εστιακή με αρκετή βεβαιότητα. Μεγέθυνε τις χαμηλές λήψεις και βάλε τα σημεία ακριβώς στις τέσσερις γωνίες.', 'hint'));
+      }
+    }
     const estimate = result.focal?.card;
     if (estimate?.ok === false && estimate.code !== result.code) {
       details.append(element('p', refusalMessage(estimate.code), 'hint'));
@@ -116,7 +134,7 @@ export function renderResult(details, result, included, knownDiameterMm) {
   const comparison = compareDiameter(result.radiusMm, knownDiameterMm);
   if (comparison) {
     readings.push(
-      ['Γνωστή ακτίνα από παχύμετρο', value(comparison.knownRadiusMm, ' mm')],
+      ['Γνωστή ακτίνα από τη διάμετρο', value(comparison.knownRadiusMm, ' mm')],
       ['Διαφορά από τη γνωστή ακτίνα', `${value(comparison.deltaMm, ' mm')} · ${value(comparison.deltaPct, '%')}`],
     );
   }
@@ -125,6 +143,7 @@ export function renderResult(details, result, included, knownDiameterMm) {
     element('h3', 'Μετρημένη ακτίνα'),
     radius,
     element('p', errorLabel, 'hint'),
+    element('p', 'Στις συνθετικές δοκιμές του Οδηγού 0.1.1, ακόμη και σωστά σημειωμένες λήψεις έδωσαν σφάλμα ακτίνας πάνω από 2%.', 'hint'),
   );
   if (source) details.append(element('p', source, 'hint'));
   details.append(values(readings));

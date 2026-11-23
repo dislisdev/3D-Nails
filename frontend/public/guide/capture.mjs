@@ -1,9 +1,12 @@
-// Πειραματικό · Οδηγός λήψης 0.1.0 · προέλευση ροής και εικόνας ο browser.
+// Πειραματικό · Οδηγός λήψης 0.1.1 · προέλευση ροής και εικόνας ο browser.
 import { cameraLabel, normalizedCameraLabel } from './probe/camera-labels.mjs';
 import { CAMERA_PROFILES } from './probe/profiles.mjs';
 import { decodeImage, describeError, imageSize, ProbeError, waitFor } from './probe/browser.mjs';
 import { sampleForReview } from './sharpness-check.mjs';
 import { CAPTURE_RULES } from './targets.mjs';
+import { orientationDifference } from './sensors.mjs';
+import { jpegFrame, nativeFrame } from './bench/images.mjs';
+import { trackIssue } from './fan-camera.mjs';
 
 const PHOTO_WAIT_MS = 12000;
 const CAPABILITIES_WAIT_MS = 800;
@@ -36,8 +39,18 @@ function isFrontCamera(label) {
     .test(normalizedCameraLabel(label));
 }
 
-function publicLabel(label, { deviceId, groupId } = {}) {
-  return label === deviceId || label === groupId ? null : cameraLabel(label) ?? null;
+function publicLabel(label, source) {
+  return label === source?.deviceId || label === source?.groupId ? null : cameraLabel(label) ?? null;
+}
+
+function trackSnapshot(track, fallbackId) {
+  let settings;
+  try { settings = track.getSettings?.(); } catch { /* Some sources expose no settings. */ }
+  return {
+    label: publicLabel(track.label, settings),
+    selectedId: settings?.deviceId || fallbackId || null,
+    settings: publicTrackSettings(settings),
+  };
 }
 
 export function cameraFailure(error) {
@@ -62,6 +75,7 @@ async function firstFrame(video, signal) {
       if (size && video.readyState >= 2) resolve(size);
     };
     video.addEventListener('error', onError);
+    for (const event of events) video.addEventListener(event, onData);
     const watchFrame = typeof video.requestVideoFrameCallback === 'function';
     if (watchFrame) {
       const onFrame = () => {
@@ -70,12 +84,8 @@ async function firstFrame(video, signal) {
         else frameId = video.requestVideoFrameCallback(onFrame);
       };
       frameId = video.requestVideoFrameCallback(onFrame);
-    } else {
-      for (const event of events) video.addEventListener(event, onData);
     }
-    Promise.resolve(video.play()).then(() => {
-      if (!watchFrame) onData();
-    }, onError);
+    Promise.resolve(video.play()).then(onData, onError);
   });
   try {
     return await waitFor(frame, signal, {
@@ -191,13 +201,8 @@ export function createBrowserCamera({ host, document, video, fileInput, inspect 
     try {
       const preview = await firstFrame(video, signal);
       video.addEventListener('error', opened.ended);
-      let settings;
-      try {
-        settings = track.getSettings?.();
-      } catch {
-        // A useful stream can still have no readable settings.
-      }
-      const label = publicLabel(track.label, settings);
+      const snapshot = trackSnapshot(track, deviceId);
+      const { label, settings } = snapshot;
       if (settings?.facingMode === 'user' || isFrontCamera(label)) {
         throw new ProbeError('unavailable', 'Ο browser άνοιξε την μπροστινή κάμερα. Χρησιμοποίησε την πίσω κάμερα του κινητού μέσω της εναλλακτικής λήψης.');
       }
@@ -218,13 +223,8 @@ export function createBrowserCamera({ host, document, video, fileInput, inspect 
       if (typeof opened.shutter?.getPhotoCapabilities === 'function') {
         opened.photoOptions = largestPhotoOptions(opened.shutter, signal);
       }
-      return {
-        preview,
-        label,
-        settings: publicTrackSettings(settings),
-        devices,
-        selectedId: settings?.deviceId ?? deviceId ?? devices.find(device => label && device.label === label)?.id ?? null,
-      };
+      opened.selectedId = snapshot.selectedId ?? devices.find(device => label && device.label === label)?.id ?? null;
+      return { preview, label, settings, devices, selectedId: opened.selectedId };
     } catch (error) {
       if (session === opened) close();
       throw error;
@@ -237,12 +237,19 @@ export function createBrowserCamera({ host, document, video, fileInput, inspect 
     if (!opened || opened.track.muted) {
       throw new ProbeError('error', 'Η ζωντανή εικόνα σταμάτησε. Άνοιξε ξανά την κάμερα ή χρησιμοποίησε την κάμερα του κινητού.');
     }
+    const before = trackSnapshot(opened.track, opened.selectedId);
+    function acquired(blob, method) {
+      signal.throwIfAborted();
+      if (session !== opened || opened.track.readyState === 'ended') throw new Error('Camera interrupted');
+      const camera = trackSnapshot(opened.track, opened.selectedId);
+      return { blob, method, camera, trackIssue: trackIssue([before, camera]) };
+    }
     if (typeof opened.shutter?.takePhoto === 'function') {
       try {
         const options = await opened.photoOptions;
         signal.throwIfAborted();
         const blob = await takeStill(opened.shutter, options, signal);
-        if (usableBlob(blob)) return { blob, method: 'takePhoto' };
+        if (usableBlob(blob)) return acquired(blob, 'takePhoto');
       } catch {
         signal.throwIfAborted();
       }
@@ -250,7 +257,7 @@ export function createBrowserCamera({ host, document, video, fileInput, inspect 
     try {
       if (session !== opened || opened.track.muted) throw new Error('Camera unavailable');
       const blob = await takeVideoFrame(video, document, signal);
-      if (usableBlob(blob)) return { blob, method: 'canvas' };
+      if (usableBlob(blob)) return acquired(blob, 'canvas');
     } catch {
       signal.throwIfAborted();
     }
@@ -292,9 +299,15 @@ export function createBrowserCamera({ host, document, video, fileInput, inspect 
     capture,
     pick,
     async inspect(blob, { signal }) {
-      const { size, sample } = await inspect(blob, signal, (image, decodedSize, activeSignal) =>
-        sampleForReview(document, image, decodedSize, activeSignal));
-      return sample ? { ...size, ...sample } : size;
+      const jpeg = await jpegFrame(blob, signal);
+      const { size, sample } = await inspect(jpeg?.preview.blob ?? blob, signal,
+        (image, decodedSize, activeSignal) =>
+          sampleForReview(document, image, jpeg ?? decodedSize, activeSignal, jpeg?.preview.transform),
+        { useBitmap: Boolean(jpeg) });
+      if (jpeg && (size.width !== jpeg.preview.rawWidth || size.height !== jpeg.preview.rawHeight)) {
+        throw new Error('Η αποκωδικοποίηση έδωσε άλλες διαστάσεις από το JPEG.');
+      }
+      return { ...(jpeg ?? nativeFrame(blob, size.width, size.height)), ...sample };
     },
     resumeVideo() {
       if (session && video.paused) Promise.resolve(video.play()).catch(() => {});
@@ -313,9 +326,19 @@ export function createCaptureTrace({ clock, readSample }) {
   let max = -Infinity;
   let seen = 0;
   let lastAt = -Infinity;
+  let rotationFromPressDeg = null;
+  let continuous = Boolean(start) && began - start.at < CAPTURE_RULES.sampleGapMs;
 
   function observe(sample) {
     if (!sample || !Number.isFinite(sample.elevation) || sample.at <= lastAt) return;
+    if (seen && sample.at - lastAt > CAPTURE_RULES.sampleGapMs) continuous = false;
+    if (seen && start?.deviceAngles && sample.deviceAngles) {
+      if (sample.headingFrame !== start.headingFrame) continuous = false;
+      else {
+        const rotation = orientationDifference(start.deviceAngles, sample.deviceAngles);
+        if (rotation !== null) rotationFromPressDeg = Math.max(rotationFromPressDeg ?? 0, rotation);
+      }
+    }
     min = Math.min(min, sample.elevation);
     max = Math.max(max, sample.elevation);
     lastAt = sample.at;
@@ -327,13 +350,19 @@ export function createCaptureTrace({ clock, readSample }) {
     const end = readSample();
     observe(end);
     const elevationRange = seen >= 2 ? max - min : null;
+    const covered = continuous && end != null && seen >= 2 && clock.now() - lastAt < CAPTURE_RULES.sampleGapMs;
+    const detected = elevationRange > CAPTURE_RULES.movedDeg || rotationFromPressDeg > CAPTURE_RULES.movedDeg;
     return {
       elevationAtPress: start?.elevation ?? null,
       elevationAtEnd: end?.elevation ?? null,
       elevationRange,
+      rotationFromPressDeg,
       roll: start?.roll ?? null,
-      alpha: start?.alpha ?? null,
-      moved: elevationRange === null ? null : elevationRange > CAPTURE_RULES.movedDeg,
+      heading: start?.heading ?? null,
+      headingFrame: start?.headingFrame ?? null,
+      screenAngle: start?.screenAngle ?? null,
+      sampleCoverage: covered,
+      moved: detected ? true : covered ? false : null,
       elapsedMs: Math.max(0, Math.round(clock.now() - began)),
     };
   }

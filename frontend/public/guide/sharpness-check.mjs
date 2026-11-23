@@ -1,4 +1,4 @@
-// Πειραματικό · Οδηγός λήψης 0.1.0 · διακύμανση από τη σελίδα ελέγχου 0.1.2.
+// Πειραματικό · Οδηγός λήψης 0.1.1 · διακύμανση από τη σελίδα ελέγχου 0.1.2.
 import { waitFor } from './probe/browser.mjs';
 import { laplacianVariance } from './probe/sharpness.mjs';
 
@@ -13,14 +13,20 @@ export function thumbnailSize({ width, height }) {
   };
 }
 
-export async function sampleForReview(document, image, size, signal) {
+export async function sampleForReview(document, image, size, signal, transform) {
   const canvas = document.createElement('canvas');
   const { width, height } = thumbnailSize(size);
   canvas.width = width;
   canvas.height = height;
   try {
     const context = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
-    context.drawImage(image, 0, 0, width, height);
+    if (transform) {
+      context.scale(width / size.width, height / size.height);
+      context.transform(...transform);
+      context.drawImage(image, 0, 0);
+    } else {
+      context.drawImage(image, 0, 0, width, height);
+    }
     let sharpnessScore = null;
     try {
       sharpnessScore = laplacianVariance(context.getImageData(0, 0, width, height).data, width, height) ?? null;

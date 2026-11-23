@@ -1,4 +1,4 @@
-/* Πειραματικό · Οδηγός λήψης 0.1.0 · θέμα της σελίδας πάγκου. */
+/* Πειραματικό · Οδηγός λήψης 0.1.1 · θέμα της σελίδας πάγκου. */
 :root { scroll-padding-block-start: var(--space-4); }
 
 .guide-page {
@@ -191,6 +191,8 @@ fieldset[aria-invalid="true"] .choice,
 .live-preview {
   position: relative;
   display: grid;
+  min-inline-size: 0;
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
   min-block-size: var(--size-preview-min);
   overflow: hidden;
@@ -203,6 +205,8 @@ fieldset[aria-invalid="true"] .choice,
 #fake-video {
   display: block;
   inline-size: 100%;
+  min-inline-size: 0;
+  max-inline-size: 100%;
   max-block-size: min(var(--size-preview-mobile), var(--size-preview-max));
   min-block-size: var(--size-preview-min);
   aspect-ratio: var(--ratio-preview);

@@ -1,4 +1,4 @@
-// Πειραματικό · Οδηγός λήψης 0.1.0 · ρυθμός ανακοινώσεων του G1.
+// Πειραματικό · Οδηγός λήψης 0.1.1 · ρυθμός ανακοινώσεων του G1.
 import { CAPTURE_RULES } from './targets.mjs';
 
 export function createAnnouncer(clock, speak) {

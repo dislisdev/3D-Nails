@@ -1,4 +1,4 @@
-// Πειραματικό · Οδηγός λήψης 0.1.0 · πηγή το πακέτο G1.
+// Πειραματικό · Οδηγός λήψης 0.1.1 · πηγή το πακέτο G1.
 export const CAPTURE_RULES = Object.freeze({
   holdMs: 500,
   elevationVariationDeg: 0.7,

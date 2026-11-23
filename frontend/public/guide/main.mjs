@@ -1,6 +1,6 @@
-// Πειραματικό · Οδηγός λήψης 0.1.0 · έναρξη με τις πηγές του browser.
+// Πειραματικό · Οδηγός λήψης 0.1.1 · έναρξη με τις πηγές του browser.
 import { createBrowserCamera } from './capture.mjs';
-import { createGuide } from './guide-model.mjs';
+import { bindPageLifecycle, createGuide } from './guide-model.mjs';
 import { browserClock, mountGuide } from './guide-ui.mjs';
 import { mountMeasurement } from './measurement-step.mjs';
 import { mountPhotoZoom } from './photo-views.mjs';
@@ -20,6 +20,4 @@ const zoom = mountPhotoZoom({ document, guide });
 const measurement = mountMeasurement({ document, guide, zoom, userAgent: navigator.userAgent });
 const review = mountReview({ document, guide, zoom });
 mountGuide({ document, guide, clock, onState() { review(); measurement(); } });
-document.addEventListener('visibilitychange', () => guide.setBackground(document.hidden));
-window.addEventListener('pagehide', guide.release);
-window.addEventListener('pageshow', () => guide.setBackground(document.hidden));
+bindPageLifecycle(guide, document, window);

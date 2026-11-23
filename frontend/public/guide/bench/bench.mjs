@@ -53,6 +53,10 @@ let guideShots = [];
 let guideShown = false;
 let guideSelectedId;
 let guideInputEpoch = 0;
+let guidedFan = false;
+let previewController;
+let displayedImage;
+let listedPhoto;
 
 function setText(element, value) {
   if (element.textContent !== value) element.textContent = value;
@@ -126,9 +130,8 @@ function updateEditor(pointsChanged) {
   deletePoint.disabled = calculating || state.selection === null;
   undoPoint.disabled = calculating || photo.history.length === 0;
 
-  const listsBelongToPhoto = byId('corner-list').dataset.photo === String(photo.id);
-  if (pointsChanged || !listsBelongToPhoto) {
-    byId('corner-list').dataset.photo = String(photo.id);
+  if (pointsChanged || listedPhoto !== photo) {
+    listedPhoto = photo;
     updatePointList('corner-list', 'cornersPx', photo.cornersPx);
     updatePointList('edge-list', 'edgePx', photo.edgePx);
   }
@@ -140,8 +143,8 @@ function updateControls() {
   const ready = readyPhotos.length;
   const isMissingFocal = photo => focal35ToPixels(photo.focal35Mm, photo.width, photo.height) === null;
   const usesCard = readyPhotos.some(isMissingFocal);
-  const fitsFrame = !usesCard || sameFrameSize(readyPhotos);
-  const lensConfirmed = !usesCard || confirmLens.checked;
+  const fitsFrame = guidedFan ? sameFrameSize(guideShots) : !usesCard || sameFrameSize(readyPhotos);
+  const lensConfirmed = (!guidedFan && !usesCard) || confirmLens.checked;
   const hasInvalidDiameter = Number.isNaN(parseDiameter(diameter.value));
   const canMeasure = confirmCard.checked && lensConfirmed && fitsFrame && !hasInvalidDiameter
     && ready >= MIN_PHOTOS && !importing && !loadingPreview;
@@ -149,7 +152,8 @@ function updateControls() {
   setText(byId('diameter-error'), hasInvalidDiameter ? 'Γράψε θετική διάμετρο σε mm ή άφησε το πεδίο κενό.' : '');
   confirmCard.disabled = calculating;
   confirmLens.disabled = calculating || importing;
-  byId('lens-confirmation').hidden = !photos.some(photo => photoStatus(photo) !== 'unreadable' && isMissingFocal(photo));
+  byId('lens-confirmation').hidden = guidedFan ? !guideShots.length
+    : !photos.some(photo => photoStatus(photo) !== 'unreadable' && isMissingFocal(photo));
   diameter.disabled = calculating;
 
   addPhotos.disabled = calculating || (!importing && records.length >= MAX_PHOTOS);
@@ -175,6 +179,7 @@ function updateControls() {
     parts.push('Υπολογισμός σε εξέλιξη.');
   } else if (outcome) {
     parts.push(outcome.ok ? 'Η μέτρηση ολοκληρώθηκε.' : 'Η μέτρηση απορρίφθηκε.');
+    if (guidedFan) parts.push('Στον υπολογισμό μπήκαν ' + ready + ' από τις ' + guideShots.length + ' λήψεις της βεντάλιας.');
   } else {
     if (!confirmCard.checked) parts.push('Επιβεβαίωσε το μέγεθος της κάρτας.');
     if (!lensConfirmed) parts.push(refusalMessage('SAME_LENS_REQUIRED'));
@@ -217,14 +222,29 @@ function updateActive() {
 
 async function openPhoto(record) {
   const request = ++previewRequest;
+  previewController?.abort();
+  previewController = null;
+  displayedImage?.removeAttribute?.('src');
+  displayedImage = null;
   active = record;
   loadingPreview = !!record?.preview;
   updateActive();
   editor.setPhoto(record?.photo ?? null, null);
+  if (!record) {
+    listedPhoto = null;
+    byId('corner-list').replaceChildren();
+    byId('edge-list').replaceChildren();
+  }
   if (!loadingPreview) return;
+  const controller = new AbortController();
+  previewController = controller;
   try {
-    const preview = await decodePreview(record.preview);
-    if (request !== previewRequest) return;
+    const preview = await decodePreview(record.preview, controller.signal);
+    if (request !== previewRequest) {
+      preview.image.removeAttribute?.('src');
+      return;
+    }
+    displayedImage = preview.image;
     editorTools.hidden = false;
     editor.setPhoto(record.photo, preview);
   } catch {
@@ -261,6 +281,7 @@ function appendPhoto(record) {
 // The capture guide supplies Blobs in fan order. Keep annotations on shots
 // whose Blob did not change, and discard any late work on deleted inputs.
 export async function setGuideInputs({ shots, diameterText, visible, wrapSummary }) {
+  guidedFan = true;
   const wasShown = guideShown;
   const sameShots = shots.length === guideShots.length && shots.every((shot, index) => shot === guideShots[index]);
   const sameDiameter = parseDiameter(diameter.value) === parseDiameter(diameterText);
@@ -302,7 +323,12 @@ export async function setGuideInputs({ shots, diameterText, visible, wrapSummary
 
   for (const shot of shots) {
     const previous = reusable.get(shot);
-    const record = previous ?? await preparePhoto(shot.blob, shot.number);
+    let record = previous;
+    if (!record && shot.preview) {
+      const { width, height, focal35Mm } = shot;
+      record = { photo: { id: shot.number, width, height, focal35Mm, cornersPx: [], edgePx: [], history: [] }, preview: shot.preview };
+    }
+    if (!record) record = await preparePhoto(shot.blob, shot.number);
     if (epoch !== guideInputEpoch) return;
     if (previous) {
       records.push(previous);
@@ -419,11 +445,11 @@ function inWorker(input) {
 
 async function runMeasurement(included, sameLensConfirmed) {
   try {
-    return await inWorker({ included, sameLensConfirmed });
+    return await inWorker({ included, sameLensConfirmed, guidedFan });
   } catch {
     // Δώσε στον browser χρόνο να δείξει την κατάσταση πριν τρέξει ο πυρήνας εδώ.
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    return calculateMeasurement(included, sameLensConfirmed);
+    return calculateMeasurement(included, sameLensConfirmed, { guidedFan });
   }
 }
 

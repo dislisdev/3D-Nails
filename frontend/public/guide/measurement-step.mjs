@@ -1,4 +1,4 @@
-// Πειραματικό · Οδηγός λήψης 0.1.0 · προβολή των λήψεων και της σύνοψης πάγκου.
+// Πειραματικό · Οδηγός λήψης 0.1.1 · προβολή των λήψεων και της σύνοψης πάγκου.
 import { setGuideInputs } from './bench/bench.mjs';
 import { shotsFor } from './guide-model.mjs';
 import { makeThumbnail, shotLabel } from './photo-views.mjs';
@@ -50,7 +50,14 @@ export function mountMeasurement({ document, guide, zoom, userAgent }) {
         : 'ανύψωση ' + angle(fan.minElevationDeg) + ' έως ' + angle(fan.maxElevationDeg);
       const turn = fan.maxSideTurnDeg === null ? 'χωρίς ένδειξη στροφής'
         : 'μέγιστη στροφή στο πλάι ' + angle(fan.maxSideTurnDeg) + ' (ενδεικτική)';
-      quality.textContent = 'Βεντάλια · ' + fan.captures + ' λήψεις · ' + elevation + ' · ' + turn;
+      const notes = ['Βεντάλια · ' + fan.captures + ' λήψεις · ' + elevation + ' · ' + turn];
+      if (fan.elevationsMeasured > 0 && fan.elevationsMeasured < fan.captures) notes.push('Με ένδειξη γωνίας ' + fan.elevationsMeasured + ' από ' + fan.captures + '.');
+      if (fan.turnsMeasured > 0 && fan.turnsMeasured < fan.captures - 1) notes.push('Με συγκρίσιμη στροφή ' + fan.turnsMeasured + ' από ' + (fan.captures - 1) + '.');
+      if (fan.outsideElevationTarget) notes.push('Έξω από τη ζώνη ανύψωσης ' + fan.outsideElevationTarget + '.');
+      if (fan.outsideTurnTarget) notes.push('Με μεγάλη στροφή στο πλάι ' + fan.outsideTurnTarget + '.');
+      if (fan.moved) notes.push('Με κούνημα ' + fan.moved + '.');
+      if (fan.outsideElevationTarget || fan.outsideTurnTarget || fan.moved) notes.push('Γύρνα στον έλεγχο για επανάληψη.');
+      quality.textContent = notes.join(' ');
       warning.hidden = state.subject !== 'nail' || state.edge === 'straight';
     } else if (previousOther.length) {
       previousOther = [];

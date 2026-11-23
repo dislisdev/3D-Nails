@@ -35,7 +35,7 @@ export function orientedFrame(rawWidth, rawHeight, orientation = 1) {
   };
 }
 
-export function readPhotoMetadata(bytes) {
+export function readPhotoMetadata(bytes, { includeLens = false } = {}) {
   const { format, fields, storedSize } = readJpegExif(bytes);
   const focal = fields.FocalLengthIn35mmFilm;
   const orientation = fields.Orientation;
@@ -45,6 +45,7 @@ export function readPhotoMetadata(bytes) {
     rawHeight: storedSize?.height ?? null,
     orientation: Number.isInteger(orientation) && orientation >= 1 && orientation <= 8 ? orientation : 1,
     focal35Mm: Number.isFinite(focal) && focal > 0 ? focal : null,
+    ...(includeLens ? { focalLengthMm: fields.FocalLength > 0 ? fields.FocalLength : null } : {}),
   };
 }
 

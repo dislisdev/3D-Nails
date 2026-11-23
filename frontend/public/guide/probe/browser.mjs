@@ -76,7 +76,7 @@ export function imageSize(width, height) {
     : undefined;
 }
 
-export async function decodeImage(blob, signal, sampleDecoded) {
+export async function decodeImage(blob, signal, sampleDecoded, { useBitmap = true } = {}) {
   signal.throwIfAborted();
   async function report(image, size, decoder) {
     let sample;
@@ -87,7 +87,7 @@ export async function decodeImage(blob, signal, sampleDecoded) {
     }
     return { size, decoder, sample };
   }
-  if (typeof globalThis.createImageBitmap === 'function') {
+  if (useBitmap && typeof globalThis.createImageBitmap === 'function') {
     try {
       const bitmap = await waitFor(globalThis.createImageBitmap(blob), signal, {
         dispose: (lateBitmap) => lateBitmap.close(),

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'none'; img-src 'self' blob:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <title>Πειραματικό · Οδηγός λήψης 0.1.0</title>
+  <title>Πειραματικό · Οδηγός λήψης 0.1.1</title>
   <link rel="stylesheet" href="./theme.css">
   <link rel="stylesheet" href="./bench/bench.css">
   <link rel="stylesheet" href="./guide.css">
@@ -13,7 +13,7 @@
 <body>
   <main class="layout page guide-page">
     <header class="guide-header">
-      <p class="edition">Πειραματικό · Οδηγός λήψης 0.1.0</p>
+      <p class="edition">Πειραματικό · Οδηγός λήψης 0.1.1</p>
       <h1>Λήψη για μέτρηση</h1>
       <p class="hint">Οι φωτογραφίες μένουν στη μνήμη αυτής της σελίδας.</p>
       <p id="demo-label" class="notice" hidden>Συνθετικό δείγμα. Η εικόνα και οι γωνίες προέρχονται από προσομοίωση.</p>
@@ -48,9 +48,9 @@
             </div>
           </fieldset>
           <div id="object-fields" class="stack">
-            <label for="known-diameter">Γνωστή διάμετρος από παχύμετρο (mm)</label>
+            <label for="known-diameter">Γνωστή διάμετρος (mm)</label>
             <input id="known-diameter" class="text-field" type="text" inputmode="decimal" autocomplete="off" aria-describedby="known-diameter-hint prep-error">
-            <p id="known-diameter-hint" class="hint">Προαιρετική. Γράψε π.χ. 18,42 ή 18.42.</p>
+            <p id="known-diameter-hint" class="hint">Προαιρετική. Π.χ. κέρμα 5 λεπτών: 21,25</p>
           </div>
           <div id="nail-fields" class="stack" hidden>
             <fieldset id="edge-field" aria-describedby="prep-error">
@@ -69,6 +69,7 @@
           <div class="placement">
             <p data-placement="card"></p>
             <p id="subject-placement"></p>
+            <p id="coin-placement" data-placement="coin"></p>
           </div>
           <p id="prep-error" class="error" aria-live="polite"></p>
           <div class="actions"><button id="prep-continue" type="submit" data-primary disabled>Συνέχισε στην κάμερα</button></div>
@@ -152,6 +153,7 @@
           </fieldset>
           <label class="check-field"><input id="auto-capture" type="checkbox" role="switch" checked><span>Αυτόματη λήψη</span></label>
         </div>
+        <div class="actions"><button id="restart-fan" type="button" hidden>Ξεκίνα ξανά τη βεντάλια</button></div>
       </div>
     </section>
 
@@ -196,10 +198,10 @@
               <p id="card-size-note" class="hint">Λάθος μέγεθος κάρτας περνά στην ακτίνα χωρίς καμία προειδοποίηση.</p>
             </div>
             <div class="stack" hidden>
-              <label for="diameter">Γνωστή διάμετρος από παχύμετρο (mm)</label>
+              <label for="diameter">Γνωστή διάμετρος (mm)</label>
               <input id="diameter" class="text-field" type="text" inputmode="decimal" autocomplete="off"
                 aria-describedby="diameter-note diameter-error">
-              <p id="diameter-note" class="hint">Προαιρετική. Γράψε π.χ. 18,42 ή 18.42.</p>
+              <p id="diameter-note" class="hint">Προαιρετική. Π.χ. κέρμα 5 λεπτών: 21,25</p>
               <p id="diameter-error" class="error" aria-live="polite"></p>
             </div>
           </div>
@@ -295,7 +297,7 @@
               <input id="confirm-lens" type="checkbox" autocomplete="off" aria-describedby="lens-note">
               <span>Όλες οι φωτογραφίες είναι από το ίδιο κινητό, με τον ίδιο φακό (1×), χωρίς ζουμ ή περικοπή</span>
             </label>
-            <p id="lens-note" class="hint">Για την εστιακή από την κάρτα χρειάζονται λοξές λήψεις ίδιων διαστάσεων. Μπορείς να κρατήσεις το κινητό οριζόντια ή κάθετα.</p>
+            <p id="lens-note" class="hint">Έλεγξε όλες τις λήψεις. Ο browser μπορεί να μην αναφέρει αλλαγή φακού σε σύνθετη κάμερα. Αν είδες ξαφνικό άλμα στο κάδρο, ξαναβγάλε τη βεντάλια με την απλή πίσω κάμερα.</p>
           </div>
           <div class="actions">
             <button id="measure" type="button" disabled>Υπολόγισε την ακτίνα</button>
@@ -335,6 +337,7 @@
       </div>
       <meter id="angle-meter" min="0" max="90" value="0" aria-labelledby="angle-name" aria-describedby="angle-target" hidden></meter>
       <p id="angle-turn" class="hint" hidden></p>
+      <p id="angle-roll" class="hint" hidden></p>
       <p id="capture-instruction" class="status"></p>
     </div>
     <p id="capture-error" class="notice"></p>

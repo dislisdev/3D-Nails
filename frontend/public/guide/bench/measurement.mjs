@@ -1,15 +1,17 @@
 import { focalFromCards } from './card-focal.mjs';
 import { CARD_ORDER_LIMITS, checkCardOrder } from './card-order.mjs';
 import { measureArc, poseFromCard } from './core/multiview-arc.mjs';
-import { buildViews, CARD_MM, MIN_PHOTOS, sameFrameSize } from './views.mjs';
+import { buildViews, CARD_MM, MAX_PHOTOS, MIN_PHOTOS, sameFrameSize } from './views.mjs';
 
 export const MEASUREMENT_OPTIONS = Object.freeze({ cardMm: CARD_MM, scan: true, leaveOneOut: true });
 export const FOCAL_LIMITS = Object.freeze({
   fileDisagreementSigma: 3,
   cornerSigmaPx: 0.5,
+  singleViewCornerSigmaPx: 1,
   exactReprojectionPx: 1e-9,
 });
 const RADIUS_ONLY = Object.freeze({ cardMm: CARD_MM, scan: false, leaveOneOut: false, viewCheck: false });
+const TWO_VIEW_COST_MARGIN = 4;
 
 export function prepareMeasurement(photos, cardConfirmed) {
   if (!cardConfirmed) return null;
@@ -50,8 +52,9 @@ function exactReprojections(arc) {
     && arc.views.every(view => view.cardRmsPx <= FOCAL_LIMITS.exactReprojectionPx);
 }
 
-export function calculateMeasurement(included, sameLensConfirmed) {
+export function calculateMeasurement(included, sameLensConfirmed, { guidedFan = false } = {}) {
   if (included.length < MIN_PHOTOS) return { ok: false, code: 'TOO_FEW_VIEWS' };
+  if (included.length > MAX_PHOTOS) return { ok: false, code: 'TOO_MANY_VIEWS' };
   const fromCard = included.some(({ view }) => view.focalPx === null);
   const focal = {
     source: fromCard ? 'card' : 'exif', card: null,
@@ -59,17 +62,19 @@ export function calculateMeasurement(included, sameLensConfirmed) {
   };
   let cardOrder = null;
   const refuse = code => ({ ok: false, code, focal, cardOrder });
-  if (fromCard) {
+  if (fromCard || guidedFan) {
     if (!sameFrameSize(included)) return refuse('FRAME_SIZE_MISMATCH');
     if (!sameLensConfirmed) return refuse('SAME_LENS_REQUIRED');
   }
 
-  const fileArc = fromCard ? null : measureViews(included.map(({ view }) => view));
+  const fileArc = fromCard ? null : measureViews(included.map(({ view }) => view), { checkOppositeCorner: guidedFan });
+  if (fileArc?.ok && guidedFan) cardOrder = { ok: true, oppositeCornerChecked: true };
   const { corners, scales, width, height } = cardFocalInput(included);
   const options = {
     width, height, cx: 0, cy: 0, cardMm: CARD_MM,
     cornerSigmaPx: exactReprojections(fileArc) ? 0 : FOCAL_LIMITS.cornerSigmaPx,
   };
+  if (guidedFan && differentFanOptics(included, corners, options)) return refuse('FAN_OPTICS_DISAGREE');
   const estimate = focalFromCards(corners, options);
   focal.card = estimate;
   focal.referenceSize = [width, height];
@@ -108,6 +113,23 @@ export function calculateMeasurement(included, sameLensConfirmed) {
   const uncertainty = focalRadiusError(views, arc.radiusSigmaMm, focal.card.focalSigmaRel);
   if (uncertainty === null) return refuse('FOCAL_RADIUS_UNCERTAIN');
   return { ...arc, focal, cardOrder, ...uncertainty };
+}
+
+// A logical camera can switch internally while its public settings stay fixed.
+// Only compare sufficiently informative card images; lack of evidence cannot
+// establish the physical identity of a lens.
+function differentFanOptics(included, corners, options) {
+  const fileFocals = included.map(({ view }) => view.focalPx).filter(Number.isFinite);
+  if (fileFocals.length && Math.max(...fileFocals) - Math.min(...fileFocals) > FOCAL_LIMITS.exactReprojectionPx) return true;
+  // The local input study includes manual corner noise up to one pixel.
+  // Give each image its own uncertainty interval before comparing two images.
+  const estimates = corners.map(image => focalFromCards([image], { ...options, cornerSigmaPx: FOCAL_LIMITS.singleViewCornerSigmaPx }))
+    .filter(estimate => estimate.ok);
+  return estimates.some((a, i) => estimates.slice(i + 1).some(b => {
+    const intervalWidths = a.focalPx * a.focalSigmaRel + b.focalPx * b.focalSigmaRel;
+    const tolerance = CARD_ORDER_LIMITS.metricTolerance * (a.focalPx + b.focalPx) / 2;
+    return Math.abs(a.focalPx - b.focalPx) > Math.max(tolerance, CARD_ORDER_LIMITS.comparisonFactor * intervalWidths);
+  }));
 }
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -156,22 +178,67 @@ function orderClearlyFitsBetter(currentRms, alternativeRms) {
   return currentRms > CARD_ORDER_LIMITS.comparisonFactor * Math.max(CARD_ORDER_LIMITS.comparisonFloorPx, alternativeRms);
 }
 
-function hasReversedEndpoints(frames) {
-  const totals = frames.map(() => ({ current: 0, reversed: 0, distances: 0 }));
+function endpointOrderIssue(frames, views) {
+  const pairs = [];
   for (const [i, a] of frames.entries()) {
     for (let j = 0; j < i; j++) {
       const current = endpointPairCost(a, frames[j], false);
       const reversed = endpointPairCost(a, frames[j], true);
       if (!Number.isFinite(current) || !Number.isFinite(reversed)) continue;
-      for (const sum of [totals[i], totals[j]]) {
-        sum.current += current;
-        sum.reversed += reversed;
-        sum.distances += 4;
-      }
+      pairs.push({ i, j, current, reversed });
     }
   }
-  return totals.some(({ current, reversed, distances }) => distances > 0
-    && orderClearlyFitsBetter(Math.sqrt(current / distances), Math.sqrt(reversed / distances)));
+  // Reversing every view just renames the endpoints. Fix the first one and
+  // compare the remaining partitions (at most 512 for ten marked views).
+  let bestGain = 0;
+  let bestMask = 0;
+  for (let mask = 2; mask < 2 ** frames.length; mask += 2) {
+    let submitted = 0;
+    let alternative = 0;
+    let count = 0;
+    for (const pair of pairs) {
+      if (((mask >> pair.i) & 1) === ((mask >> pair.j) & 1)) continue;
+      submitted += pair.current;
+      alternative += pair.reversed;
+      count += 4;
+    }
+    if (!count) continue;
+    const currentRms = Math.sqrt(submitted / count);
+    const reversedRms = Math.sqrt(alternative / count);
+    if (orderClearlyFitsBetter(currentRms, reversedRms)) return 'EDGE_END_ORDER';
+    // With only two weakly discriminating views, check both complete fits
+    // even when numerical noise puts the submitted assignment first.
+    if (frames.length === 2 && !orderClearlyFitsBetter(reversedRms, currentRms)) bestMask = mask;
+    const gain = submitted - alternative;
+    if (gain > bestGain) {
+      bestGain = gain;
+      bestMask = mask;
+    }
+  }
+  if (!bestMask) return null;
+
+  // Almost collinear epipolar lines constrain only the perpendicular error.
+  // Check whether the competing assignment also explains the whole curve.
+  const alternativeViews = views.map((view, i) => bestMask & (1 << i)
+    ? { ...view, edgePx: [...view.edgePx].reverse() } : view);
+  const alternativeFit = measureArc(alternativeViews, RADIUS_ONLY);
+  if (!alternativeFit.ok) return null;
+  const submittedFit = measureArc(views, RADIUS_ONLY);
+  if (!submittedFit.ok) return 'EDGE_END_ORDER';
+  const current = submittedFit.edgeRmsPx;
+  const alternative = alternativeFit.edgeRmsPx;
+  if (views.length === 2) {
+    // Και τα δύο τόξα έχουν τις ίδιες παραμέτρους και ακριβώς τα ίδια σημεία.
+    // Με δύο όψεις δεν υπάρχει τρίτη που να λύνει ισοπαλία των αντιστοιχίσεων.
+    const count = views[0].edgePx.length + views[1].edgePx.length;
+    const noise = Math.max(CARD_ORDER_LIMITS.comparisonFloorPx, Math.min(current, alternative));
+    const difference = count * (current * current - alternative * alternative) / (noise * noise);
+    if (difference > TWO_VIEW_COST_MARGIN) return 'EDGE_END_ORDER';
+    if (difference >= -TWO_VIEW_COST_MARGIN) return 'EDGE_END_AMBIGUOUS';
+    return null;
+  }
+  return current > alternative + CARD_ORDER_LIMITS.comparisonFloorPx
+    && current > alternative * CARD_ORDER_LIMITS.comparisonFactor ? 'EDGE_END_ORDER' : null;
 }
 
 function competingOppositeCorner(frames) {
@@ -194,6 +261,8 @@ function competingOppositeCorner(frames) {
   }
 
   // Η πρώτη όψη ορίζει την αρχή. Αν αλλάξουν όλες, αλλάζουν μόνο οι άξονες.
+  let best = null;
+  let bestGain = -Infinity;
   for (let mask = 2; mask < 2 ** frames.length; mask += 2) {
     const shifted = index => Boolean(mask & (1 << index));
     let current = 0;
@@ -208,13 +277,19 @@ function competingOppositeCorner(frames) {
     const currentRmsPx = distances > 0 ? Math.sqrt(current / distances) : null;
     const oppositeRmsPx = distances > 0 ? Math.sqrt(opposite / distances) : null;
     if (distances > 0 && orderClearlyFitsBetter(oppositeRmsPx, currentRmsPx)) continue;
-    return { shiftedViews: frames.map((_, index) => index).filter(shifted), currentRmsPx, oppositeRmsPx };
+    // Record the strongest competing assignment, not the first bit pattern.
+    const gain = current - opposite;
+    if (gain > bestGain) {
+      bestGain = gain;
+      best = { shiftedViews: frames.map((_, index) => index).filter(shifted), currentRmsPx, oppositeRmsPx };
+    }
   }
-  return null;
+  return best;
 }
 
 export function measureViews(views, { checkOppositeCorner = false } = {}) {
   if (views.length < MIN_PHOTOS) return measureArc(views, MEASUREMENT_OPTIONS);
+  if (views.length > MAX_PHOTOS) return { ok: false, code: 'TOO_MANY_VIEWS' };
   const frames = [];
   for (const view of views) {
     const pose = poseFromCard(view.cornersPx, view, CARD_MM);
@@ -226,10 +301,11 @@ export function measureViews(views, { checkOppositeCorner = false } = {}) {
     }
     frames.push(endpointRays(view, pose));
   }
+  const endpointIssue = endpointOrderIssue(frames, views);
+  if (endpointIssue) return { ok: false, code: endpointIssue };
   if (checkOppositeCorner) {
     const oppositeCorner = competingOppositeCorner(frames);
     if (oppositeCorner !== null) return { ok: false, code: 'CARD_ORDER_UNCERTAIN', oppositeCorner };
   }
-  if (hasReversedEndpoints(frames)) return { ok: false, code: 'EDGE_END_ORDER' };
   return measureArc(views, MEASUREMENT_OPTIONS);
 }

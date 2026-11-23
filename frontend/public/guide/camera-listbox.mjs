@@ -1,4 +1,4 @@
-// Πειραματικό · Οδηγός λήψης 0.1.0 · επιλογή πηγής του browser.
+// Πειραματικό · Οδηγός λήψης 0.1.1 · επιλογή πηγής του browser.
 export function createCameraListbox({ document, list, choose, clock, typeaheadMs }) {
   let entries = [];
   let selectedId;
